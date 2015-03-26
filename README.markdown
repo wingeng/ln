@@ -1,6 +1,6 @@
 # Massaging into C++
 
-Taking the original linenoise code and massaging it to C++
+Taking the original linenoise code and massaging it to C++ (slowly)
 
 # Linenoise
 
