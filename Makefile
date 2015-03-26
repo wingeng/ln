@@ -1,4 +1,6 @@
-
+#
+# C++ linenoise
+#
 CXX_FLAGS = -std=c++0x -Wall -W -g
 
 
