@@ -360,9 +360,9 @@ completeLine (struct linenoiseState *ls)
             switch(c) {
 	    case TAB:
 		lnBeep();
+	    case '?':
 		helpLine(ls);
 		break;
-
 	    default:
 		stop = 1;
 		break;
