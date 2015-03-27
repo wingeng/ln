@@ -47,7 +47,6 @@ int linenoiseHistorySetMaxLen(int len);
 int linenoiseHistorySave(const char *filename);
 int linenoiseHistoryLoad(const char *filename);
 void linenoiseClearScreen(void);
-void linenoisePrintKeyCodes(void);
 
 int lnEnableRawMode(int);
 void lnDisableRawMode(int);
