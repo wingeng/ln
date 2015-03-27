@@ -463,8 +463,6 @@ lnEditInsert (struct linenoiseState *l, char c)
                 /* Avoid a full update of the line in the
                  * trivial case. */
                 if (write(l->ofd,&c,1) == -1) return -1;
-            } else {
-                refreshLine(l);
             }
         } else {
             memmove(l->buf+l->pos+1,l->buf+l->pos,l->len-l->pos);
@@ -472,7 +470,6 @@ lnEditInsert (struct linenoiseState *l, char c)
             l->len++;
             l->pos++;
             l->buf[l->len] = '\0';
-            refreshLine(l);
         }
     }
     return 0;
@@ -484,7 +481,6 @@ lnEditMoveLeft (struct linenoiseState *l)
 {
     if (l->pos > 0) {
         l->pos--;
-        refreshLine(l);
     }
 }
 
@@ -494,7 +490,6 @@ lnEditMoveRight (struct linenoiseState *l)
 {
     if (l->pos != l->len) {
         l->pos++;
-        refreshLine(l);
     }
 }
 
@@ -523,7 +518,6 @@ lnEditMoveLeftWord (struct linenoiseState *l)
 {
     if (l->pos == 0) return;
     lnMoveWord(l, -1);
-    refreshLine(l);
 }
 
 static void
@@ -531,7 +525,6 @@ lnEditMoveRightWord (struct linenoiseState *l)
 {
     if (l->pos == l->len) return;
     lnMoveWord(l, 1);
-    refreshLine(l);
 }
 
 
@@ -541,16 +534,14 @@ lnEditMoveHome (struct linenoiseState *l)
 {
     if (l->pos == 0) return;
     l->pos = 0;
-    refreshLine(l);
 }
 
 /* Move cursor to the end of the line. */
 void
-lnEditMoveEnd(struct linenoiseState *l)
+lnEditMoveEnd (struct linenoiseState *l)
 {
     if (l->pos == l->len) return;
     l->pos = l->len;
-    refreshLine(l);
 }
 
 /* Substitute the currently edited line with the next or previous history
@@ -579,7 +570,6 @@ lnEditHistoryNext (struct linenoiseState *l, int dir)
         strncpy(l->buf, history[history_len - 1 - l->history_index].c_str(), l->buflen);
         l->buf[l->buflen-1] = '\0';
         l->len = l->pos = strlen(l->buf);
-        refreshLine(l);
     }
 }
 
@@ -592,7 +582,6 @@ lnEditDelete (struct linenoiseState *l)
         memmove(l->buf+l->pos,l->buf+l->pos+1,l->len-l->pos-1);
         l->len--;
         l->buf[l->len] = '\0';
-        refreshLine(l);
     }
 }
 
@@ -605,7 +594,6 @@ lnEditBackspace (struct linenoiseState *l)
         l->pos--;
         l->len--;
         l->buf[l->len] = '\0';
-        refreshLine(l);
     }
 }
 
@@ -623,7 +611,6 @@ lnEditDeletePrevWord (struct linenoiseState *l)
     diff = old_pos - l->pos;
     memmove(l->buf+l->pos,l->buf+old_pos,l->len-old_pos+1);
     l->len -= diff;
-    refreshLine(l);
 }
 
 /* Delete the next word, maintaining the cursor at the start of the
@@ -641,8 +628,6 @@ lnEditDeleteNextWord (struct linenoiseState *l)
     memmove(l->buf+old_pos,l->buf+l->pos,l->len-l->pos+1);
     l->len -= diff;
     l->pos = old_pos;
-
-    refreshLine(l);
 }
 
 /* This function is the core of the line editing capability of linenoise.
@@ -732,7 +717,6 @@ lnEdit (int stdin_fd, int stdout_fd,
                 buf[l.pos-1] = buf[l.pos];
                 buf[l.pos] = aux;
                 if (l.pos != l.len-1) l.pos++;
-                refreshLine(&l);
             }
             break;
         case CTRL_B:     /* ctrl-b */
@@ -832,12 +816,10 @@ lnEdit (int stdin_fd, int stdout_fd,
         case CTRL_U: /* Ctrl+u, delete the whole line. */
             buf[0] = '\0';
             l.pos = l.len = 0;
-            refreshLine(&l);
             break;
         case CTRL_K: /* Ctrl+k, delete from current to end of line. */
             buf[l.pos] = '\0';
             l.len = l.pos;
-            refreshLine(&l);
             break;
         case CTRL_A: /* Ctrl+a, go to the start of the line */
             lnEditMoveHome(&l);
@@ -847,13 +829,14 @@ lnEdit (int stdin_fd, int stdout_fd,
             break;
         case CTRL_L: /* ctrl+l, clear screen */
             linenoiseClearScreen();
-            refreshLine(&l);
             break;
         case CTRL_W: /* ctrl+w, delete previous word */
             lnEditDeletePrevWord(&l);
             break;
         }
+	refreshLine(&l);
     }
+
     return l.len;
 }
 
@@ -924,7 +907,6 @@ lnAtExit (void)
 int
 linenoiseHistoryAdd (const char *line)
 {
-
     if (history_max_len == 0) return 0;
 
     /* Don't add duplicated lines. */
