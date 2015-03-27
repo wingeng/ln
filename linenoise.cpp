@@ -38,15 +38,14 @@ public:
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 static const char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
-static linenoiseCompletionCallback *completionCallback = NULL;
 static lnCompletionFunc cppCompletionCallback;
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static int rawmode = 0; /* For atexit() function to check if restore is needed*/
 static int atexit_registered = 0; /* Register atexit just 1 time. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
-static int history_len = 0;
-static char **history = NULL;
+
+static std::vector<std::string> history;
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -126,8 +125,8 @@ isUnsupportedTerm (void)
 }
 
 /* Raw mode: 1960 magic shit. */
-static int
-enableRawMode(int fd)
+int
+lnEnableRawMode (int fd)
 {
     struct termios raw;
 
@@ -163,8 +162,8 @@ fatal:
     return -1;
 }
 
-static void
-disableRawMode (int fd)
+void
+lnDisableRawMode (int fd)
 {
     /* Don't even check the return value as it's too late. */
     if (rawmode && tcsetattr(fd,TCSAFLUSH,&orig_termios) != -1)
@@ -383,12 +382,6 @@ completeLine (struct linenoiseState *ls)
 
 /* Register a callback function to be called for tab-completion. */
 void
-linenoiseSetCompletionCallback (linenoiseCompletionCallback *fn)
-{
-    completionCallback = fn;
-}
-
-void
 lnSetCompletionCallback (lnCompletionFunc fn)
 {
     cppCompletionCallback = fn;
@@ -406,29 +399,6 @@ lnAddCompletion (lnCompletionVec *lc,
     lc->push_back(lnCompletion(str, help));
 }
 
-/* This function is used by the callback function registered by the user
- * in order to add completion options given the input string when the
- * user typed <tab>. See the example.c source code for a very easy to
- * understand example. */
-void
-linenoiseAddCompletion (linenoiseCompletions *lc,
-			const char *str, const char *help)
-{
-    char **cvec, **hvec;
-
-    cvec = (char **) realloc(lc->cvec,sizeof(char*)*(lc->len+1));
-    if (cvec == NULL) return;
-    lc->cvec = cvec;
-    lc->cvec[lc->len] = strdup(str);
-
-    hvec = (char **) realloc(lc->hvec,sizeof(char*)*(lc->len+1));
-    if (hvec == NULL) return;
-    lc->hvec = hvec;
-    lc->hvec[lc->len] = strdup(help);
-
-    lc->len++;
-
-}
 
 /* =========================== Line editing ================================= */
 
@@ -599,21 +569,23 @@ linenoiseEditMoveEnd(struct linenoiseState *l)
 void
 linenoiseEditHistoryNext (struct linenoiseState *l, int dir)
 {
-    if (history_len > 1) {
+    if (history.size() > 1) {
+	auto history_len = (int) history.size();
+
         /* Update the current history entry before to
          * overwrite it with the next one. */
-        free(history[history_len - 1 - l->history_index]);
-        history[history_len - 1 - l->history_index] = strdup(l->buf);
+        history[history_len - 1 - l->history_index] = l->buf;
+	
         /* Show the new entry */
         l->history_index += (dir == LINENOISE_HISTORY_PREV) ? 1 : -1;
         if (l->history_index < 0) {
             l->history_index = 0;
             return;
         } else if (l->history_index >= history_len) {
-            l->history_index = history_len-1;
+            l->history_index = history_len - 1;
             return;
         }
-        strncpy(l->buf, history[history_len - 1 - l->history_index], l->buflen);
+        strncpy(l->buf, history[history_len - 1 - l->history_index].c_str(), l->buflen);
         l->buf[l->buflen-1] = '\0';
         l->len = l->pos = strlen(l->buf);
         refreshLine(l);
@@ -750,9 +722,8 @@ linenoiseEdit (int stdin_fd, int stdout_fd,
 
         switch(c) {
         case ENTER:
-            history_len--;
-            free(history[history_len]);
-            return (int)l.len;
+	    history.pop_back();
+            return (int) l.len;
         case CTRL_C:
             errno = EAGAIN;
             return -1;
@@ -765,8 +736,7 @@ linenoiseEdit (int stdin_fd, int stdout_fd,
             if (l.len > 0) {
                 linenoiseEditDelete(&l);
             } else {
-                history_len--;
-                free(history[history_len]);
+		history.pop_back();
                 return -1;
             }
             break;
@@ -901,36 +871,6 @@ linenoiseEdit (int stdin_fd, int stdout_fd,
     return l.len;
 }
 
-/* This special mode is used by linenoise in order to print scan codes
- * on screen for debugging / development purposes. It is implemented
- * by the linenoise_example program using the --keycodes option. */
-void
-linenoisePrintKeyCodes (void)
-{
-    char quit[4];
-
-    printf("Linenoise key codes debugging mode.\n"
-            "Press keys to see scan codes. Type 'quit' at any time to exit.\n");
-    if (enableRawMode(STDIN_FILENO) == -1) return;
-    memset(quit,' ',4);
-    while(1) {
-        char c;
-        int nread;
-
-        nread = read(STDIN_FILENO,&c,1);
-        if (nread <= 0) continue;
-        memmove(quit, quit+1, sizeof(quit)-1); /* shift string to left. */
-        quit[sizeof(quit)-1] = c; /* Insert current char on the right. */
-        if (memcmp(quit,"quit",sizeof(quit)) == 0) break;
-
-        printf("'%c' %02x (%d) (type quit to exit)\n",
-            isprint(c) ? c : '?', (int)c, (int)c);
-        printf("\x1b[0G"); /* Go left edge manually, we are in raw mode. */
-        fflush(stdout);
-    }
-    disableRawMode(STDIN_FILENO);
-}
-
 /* This function calls the line editing function linenoiseEdit() using
  * the STDIN file descriptor set in raw mode. */
 static int
@@ -952,9 +892,9 @@ linenoiseRaw (char *buf, size_t buflen, const char *prompt)
         }
     } else {
         /* Interactive editing. */
-        if (enableRawMode(STDIN_FILENO) == -1) return -1;
+        if (lnEnableRawMode(STDIN_FILENO) == -1) return -1;
         count = linenoiseEdit(STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt);
-        disableRawMode(STDIN_FILENO);
+        lnDisableRawMode(STDIN_FILENO);
         printf("\n");
     }
     return count;
@@ -992,63 +932,31 @@ linenoise (const char *prompt)
 
 /* ================================ History ================================= */
 
-/* Free the history, but does not reset it. Only used when we have to
- * exit() to avoid memory leaks are reported by valgrind & co. */
-static void
-freeHistory (void)
-{
-    if (history) {
-        int j;
-
-        for (j = 0; j < history_len; j++)
-            free(history[j]);
-        free(history);
-    }
-}
-
 /* At exit we'll try to fix the terminal to the initial conditions. */
 static void
 linenoiseAtExit (void)
 {
-    disableRawMode(STDIN_FILENO);
-    freeHistory();
+    lnDisableRawMode(STDIN_FILENO);
 }
 
-/* This is the API call to add a new entry in the linenoise history.
- * It uses a fixed array of char pointers that are shifted (memmoved)
- * when the history max length is reached in order to remove the older
- * entry and make room for the new one, so it is not exactly suitable for huge
- * histories, but will work well for a few hundred of entries.
- *
- * Using a circular buffer is smarter, but a bit more complex to handle. */
+/* This is the API call to add a new entry in the linenoise history. */
+
 int
 linenoiseHistoryAdd (const char *line)
 {
-    char *linecopy;
 
     if (history_max_len == 0) return 0;
 
-    /* Initialization on first call. */
-    if (history == NULL) {
-        history = (char **) malloc(sizeof(char*)*history_max_len);
-        if (history == NULL) return 0;
-        memset(history,0,(sizeof(char*)*history_max_len));
-    }
-
     /* Don't add duplicated lines. */
-    if (history_len && !strcmp(history[history_len-1], line)) return 0;
+    auto history_len = (int) history.size();
+    if (history.size() && history[history_len-1] == line)
+	return 0;
 
-    /* Add an heap allocated copy of the line in the history.
-     * If we reached the max length, remove the older line. */
-    linecopy = strdup(line);
-    if (!linecopy) return 0;
     if (history_len == history_max_len) {
-        free(history[0]);
-        memmove(history,history+1,sizeof(char*)*(history_max_len-1));
-        history_len--;
+        history.erase(history.begin());
     }
-    history[history_len] = linecopy;
-    history_len++;
+
+    history.push_back(line);
     return 1;
 }
 
@@ -1059,30 +967,16 @@ linenoiseHistoryAdd (const char *line)
 int
 linenoiseHistorySetMaxLen (int len)
 {
-    char **n;
-
     if (len < 1) return 0;
-    if (history) {
-        int tocopy = history_len;
 
-        n = (char **) malloc(sizeof(char*)*len);
-        if (n == NULL) return 0;
-
-        /* If we can't copy everything, free the elements we'll not use. */
-        if (len < tocopy) {
-            int j;
-
-            for (j = 0; j < tocopy-len; j++) free(history[j]);
-            tocopy = len;
-        }
-        memset(n,0,sizeof(char*)*len);
-        memcpy(n,history+(history_len-tocopy), sizeof(char*)*tocopy);
-        free(history);
-        history = n;
+    if (len < (int) history.size()) {
+	while ((int) history.size() >= len) {
+	    history.erase(history.begin());
+	}
     }
+
     history_max_len = len;
-    if (history_len > history_max_len)
-        history_len = history_max_len;
+
     return 1;
 }
 
@@ -1092,11 +986,10 @@ int
 linenoiseHistorySave (const char *filename)
 {
     FILE *fp = fopen(filename,"w");
-    int j;
     
     if (fp == NULL) return -1;
-    for (j = 0; j < history_len; j++)
-        fprintf(fp,"%s\n",history[j]);
+    for (auto s : history) 
+        fprintf(fp, "%s\n", s.c_str());
     fclose(fp);
     return 0;
 }

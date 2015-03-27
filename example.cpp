@@ -93,9 +93,6 @@ call_command (const char *buf)
 	printf("no commands matched\n");
 	break;
     case 1:
-	linenoiseHistoryAdd(buf);
-	linenoiseHistorySave("history.txt");
-
 	found_action(buf);
 	break;
     default:
@@ -105,23 +102,9 @@ call_command (const char *buf)
 }
 
 int
-main (int argc, char **argv) 
+main ()
 {
     char *line;
-    char *prgname = argv[0];
-
-    /* Parse options  */
-    while (argc > 1) {
-        argc--;
-        argv++;
-        if (!strcmp(*argv,"--keycodes")) {
-            linenoisePrintKeyCodes();
-            exit(0);
-        } else {
-            fprintf(stderr, "Usage: %s [--keycodes]\n", prgname);
-            exit(1);
-        }
-    }
 
     lnSetCompletionCallback([] (const char *buf, lnCompletionVec *lc) {
 	    command_match(buf, [lc] (command_t &cmd) {
@@ -140,6 +123,13 @@ main (int argc, char **argv)
      */
     while ((line = linenoise("computer> ")) != NULL) {
 	call_command(line);
+
+	if (strlen(line)) {
+	    linenoiseHistoryAdd(line);
+	    linenoiseHistorySave("history.txt");
+	}
+
+
         free(line);
     }
     return 0;
