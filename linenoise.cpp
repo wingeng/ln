@@ -105,7 +105,6 @@ FILE *lndebug_fp = NULL;
 #define wndebug(fmt, ...)
 #endif
 
-
 /* ======================= Low level terminal handling ====================== */
 
 /* Return true if the terminal name is in the list of terminals we know are
@@ -133,7 +132,7 @@ lnEnableRawMode (int fd)
         atexit(lnAtExit);
         atexit_registered = 1;
     }
-    if (tcgetattr(fd,&orig_termios) == -1) goto fatal;
+    if (tcgetattr(fd, &orig_termios) == -1) goto fatal;
 
     raw = orig_termios;  /* modify the original mode */
     /* input modes: no break, no CR to NL, no parity check, no strip char,
@@ -151,7 +150,7 @@ lnEnableRawMode (int fd)
     raw.c_cc[VMIN] = 1; raw.c_cc[VTIME] = 0; /* 1 byte, no timer */
 
     /* put terminal in raw mode after flushing */
-    if (tcsetattr(fd,TCSAFLUSH,&raw) < 0) goto fatal;
+    if (tcsetattr(fd, TCSAFLUSH,&raw) < 0) goto fatal;
     rawmode = 1;
     return 0;
 
@@ -164,7 +163,7 @@ void
 lnDisableRawMode (int fd)
 {
     /* Don't even check the return value as it's too late. */
-    if (rawmode && tcsetattr(fd,TCSAFLUSH,&orig_termios) != -1)
+    if (rawmode && tcsetattr(fd, TCSAFLUSH,&orig_termios) != -1)
         rawmode = 0;
 }
 
@@ -183,7 +182,7 @@ getCursorPosition (int ifd, int ofd)
 
     /* Read the response: ESC [ rows ; cols R */
     while (i < sizeof(buf)-1) {
-        if (read(ifd,buf+i,1) != 1) break;
+        if (read(ifd, buf + i, 1) != 1) break;
         if (buf[i] == 'R') break;
         i++;
     }
@@ -191,7 +190,7 @@ getCursorPosition (int ifd, int ofd)
 
     /* Parse it. */
     if (buf[0] != ESC || buf[1] != '[') return -1;
-    if (sscanf(buf+2,"%d;%d",&rows,&cols) != 2) return -1;
+    if (sscanf(buf + 2, "%d;%d", &rows, &cols) != 2) return -1;
     return cols;
 }
 
@@ -221,19 +220,19 @@ getColumns (int ifd, int ofd)
         int start, cols;
 
         /* Get the initial position so we can restore it later. */
-        start = getCursorPosition(ifd,ofd);
+        start = getCursorPosition(ifd, ofd);
         if (start == -1) goto failed;
 
         /* Go to right margin and get position. */
-        if (write(ofd,"\x1b[999C",6) != 6) goto failed;
-        cols = getCursorPosition(ifd,ofd);
+        if (write(ofd, "\x1b[999C", 6) != 6) goto failed;
+        cols = getCursorPosition(ifd, ofd);
         if (cols == -1) goto failed;
 
         /* Restore position. */
         if (cols > start) {
 	    string_fmt_c s;
 
-	    s.format("\x1b[%dD",cols-start);
+	    s.format("\x1b[%dD", cols-start);
             if (write(ofd, s.c_str(), s.size()) == -1) {
                 /* Can't recover... */
             }
@@ -251,7 +250,7 @@ getColumns (int ifd, int ofd)
 void
 linenoiseClearScreen (void)
 {
-    if (write(STDOUT_FILENO,"\x1b[H\x1b[2J",7) <= 0) {
+    if (write(STDOUT_FILENO, "\x1b[H\x1b[2J", 7) <= 0) {
         /* nothing to do, just to avoid warning. */
     }
 }
@@ -289,21 +288,18 @@ longestMatch (std::vector<lnCompletion> *lc)
     return longest;
 }
 
-static int
+static void
 helpLine (struct linenoiseState *ls)
 {
+    std::vector<lnCompletion> lc;
     unsigned int max_cols, max_rows;
     
     get_col_row(max_cols, max_rows);
-
-    std::vector<lnCompletion> lc;
-
     cppCompletionCallback(ls->buf, &lc);
 
     if (lc.size() == 0) {
 	printf("\r\n *no-match*");
     } else {
-
 	// maximum rows to display is the screen rows less
 	// 1 for prompt and 1 for the '... more ...' msg
 	if (max_rows > 1) max_rows -= 2;
@@ -327,7 +323,6 @@ helpLine (struct linenoiseState *ls)
 
     refreshSingleLine(ls);
     fflush(stdout);
-    return 0;
 }
 
 /* This is an helper function for lnEdit() and is called when the
@@ -357,7 +352,7 @@ completeLine (struct linenoiseState *ls)
 	refreshLine(ls);
 
         while (!stop) {
-            nread = read(ls->ifd,&c,1);
+            nread = read(ls->ifd, &c, 1);
             if (nread <= 0) {
                 return -1;
             }
@@ -462,10 +457,10 @@ lnEditInsert (struct linenoiseState *l, char c)
             if (l->plen+l->len < l->cols) {
                 /* Avoid a full update of the line in the
                  * trivial case. */
-                if (write(l->ofd,&c,1) == -1) return -1;
+                if (write(l->ofd, &c, 1) == -1) return -1;
             }
         } else {
-            memmove(l->buf+l->pos+1,l->buf+l->pos,l->len-l->pos);
+            memmove(l->buf+l->pos+1, l->buf + l->pos, l->len-l->pos);
             l->buf[l->pos] = c;
             l->len++;
             l->pos++;
@@ -579,7 +574,7 @@ void
 lnEditDelete (struct linenoiseState *l)
 {
     if (l->len > 0 && l->pos < l->len) {
-        memmove(l->buf+l->pos,l->buf+l->pos+1,l->len-l->pos-1);
+        memmove(l->buf+l->pos, l->buf+l->pos+1, l->len-l->pos-1);
         l->len--;
         l->buf[l->len] = '\0';
     }
@@ -590,7 +585,7 @@ void
 lnEditBackspace (struct linenoiseState *l)
 {
     if (l->pos > 0 && l->len > 0) {
-        memmove(l->buf+l->pos-1,l->buf+l->pos,l->len-l->pos);
+        memmove(l->buf+l->pos-1, l->buf+l->pos, l->len-l->pos);
         l->pos--;
         l->len--;
         l->buf[l->len] = '\0';
@@ -609,7 +604,7 @@ lnEditDeletePrevWord (struct linenoiseState *l)
 
     lnMoveWord(l, -1);
     diff = old_pos - l->pos;
-    memmove(l->buf+l->pos,l->buf+old_pos,l->len-old_pos+1);
+    memmove(l->buf+l->pos, l->buf+old_pos, l->len-old_pos+1);
     l->len -= diff;
 }
 
@@ -625,7 +620,7 @@ lnEditDeleteNextWord (struct linenoiseState *l)
 
     lnMoveWord(l, 1);
     diff = l->pos - old_pos;
-    memmove(l->buf+old_pos,l->buf+l->pos,l->len-l->pos+1);
+    memmove(l->buf+old_pos, l->buf+l->pos, l->len-l->pos+1);
     l->len -= diff;
     l->pos = old_pos;
 }
@@ -665,13 +660,13 @@ lnEdit (int stdin_fd, int stdout_fd,
      * initially is just an empty string. */
     linenoiseHistoryAdd("");
     
-    if (write(l.ofd,prompt,l.plen) == -1) return -1;
+    if (write(l.ofd, prompt, l.plen) == -1) return -1;
     while(1) {
         char c;
         int nread;
         char seq[3];
 
-        nread = read(l.ifd,&c,1);
+        nread = read(l.ifd, &c, 1);
         if (nread <= 0) return l.len;
 
         /* Only autocomplete when the callback is set. It returns < 0 when
@@ -685,7 +680,7 @@ lnEdit (int stdin_fd, int stdout_fd,
 		/* Read next character when 0 */
 		if (c == 0) continue;
 	    } else if (c == '?') {
-		c = helpLine(&l);
+		helpLine(&l);
 		continue;
 	    }
 	    
@@ -734,14 +729,14 @@ lnEdit (int stdin_fd, int stdout_fd,
         case ESC:    /* escape sequence */
 	    /* Use first byte following ESC to determine if additional
 	     * reads are necessary */
-            if (read(l.ifd,seq,1) == -1) break;
+            if (read(l.ifd, seq, 1) == -1) break;
 
             /* ESC [ sequences. Additional 2 or 3 bytes */
             if (seq[0] == '[') {
-		if (read(l.ifd,seq+1,1) == -1) break;
+		if (read(l.ifd, seq + 1, 1) == -1) break;
                 if (seq[1] >= '0' && seq[1] <= '9') {
                     /* Extended escape, read additional byte. */
-                    if (read(l.ifd,seq+2,1) == -1) break;
+                    if (read(l.ifd, seq + 2, 1) == -1) break;
                     if (seq[2] == '~') {
                         switch(seq[1]) {
                         case '3': /* Delete key. */
@@ -775,7 +770,7 @@ lnEdit (int stdin_fd, int stdout_fd,
 
             /* ESC O sequences. 2 bytes */
             else if (seq[0] == 'O') {
-		if (read(l.ifd,seq+1,1) == -1) break;
+		if (read(l.ifd, seq + 1, 1) == -1) break;
                 switch(seq[1]) {
                 case 'H': /* Home */
                     lnEditMoveHome(&l);
@@ -811,7 +806,7 @@ lnEdit (int stdin_fd, int stdout_fd,
 
             break;
         default:
-            if (lnEditInsert(&l,c)) return -1;
+            if (lnEditInsert(&l, c)) return -1;
             break;
         case CTRL_U: /* Ctrl+u, delete the whole line. */
             buf[0] = '\0';
@@ -875,7 +870,7 @@ linenoise (const char *prompt)
         size_t len;
 
 	if (isatty(STDIN_FILENO)) {
-	    printf("%s",prompt);
+	    printf("%s", prompt);
 	    fflush(stdout);
 	}
 
@@ -886,7 +881,7 @@ linenoise (const char *prompt)
             buf[len] = '\0';
         }
     } else {
-        count = lnRaw(buf,LN_MAX_LINE,prompt);
+        count = lnRaw(buf, LN_MAX_LINE, prompt);
         if (count == -1) return NULL;
     }
 
@@ -945,7 +940,7 @@ lnHistorySetMaxLen (int len)
 int
 linenoiseHistorySave (const char *filename)
 {
-    FILE *fp = fopen(filename,"w");
+    FILE *fp = fopen(filename, "w");
     
     if (fp == NULL) return -1;
     for (auto s : history) 
@@ -962,7 +957,7 @@ linenoiseHistorySave (const char *filename)
 int
 linenoiseHistoryLoad (const char *filename)
 {
-    FILE *fp = fopen(filename,"r");
+    FILE *fp = fopen(filename, "r");
     char buf[LN_MAX_LINE];
     
     if (fp == NULL) return -1;
