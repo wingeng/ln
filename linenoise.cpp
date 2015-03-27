@@ -155,7 +155,7 @@ lnEnableRawMode (int fd)
     rawmode = 1;
     return 0;
 
-fatal:
+ fatal:
     errno = ENOTTY;
     return -1;
 }
@@ -243,7 +243,7 @@ getColumns (int ifd, int ofd)
         return ws.ws_col;
     }
 
-failed:
+ failed:
     return 80;
 }
 
@@ -504,36 +504,33 @@ isWordSep (int ch)
     return !isalnum(ch);
 }
 
-void
+static void
+lnMoveWord (struct linenoiseState *l, int dir)
+{
+    if ((int) l->pos + dir < 0) return;
+    if ((int) l->pos + dir >= (int) l->len) return;
+
+    l->pos += dir;
+    while (l->pos > 0 && l->pos != l->len && isWordSep(l->buf[l->pos]))
+	l->pos += dir;
+
+    while (l->pos > 0 && l->pos != l->len && !isWordSep(l->buf[l->pos-1]))
+	l->pos += dir;
+}
+
+static void
 lnEditMoveLeftWord (struct linenoiseState *l)
 {
     if (l->pos == 0) return;
-
-    l->pos--;
-
-    while (l->pos > 0 && isWordSep(l->buf[l->pos]))
-	l->pos--;
-
-    while (l->pos > 0 && !isWordSep(l->buf[l->pos-1]))
-	l->pos--;
-
+    lnMoveWord(l, -1);
     refreshLine(l);
 }
 
-/* Move word to the right */
-void
+static void
 lnEditMoveRightWord (struct linenoiseState *l)
 {
     if (l->pos == l->len) return;
-
-    l->pos++;
-
-    while (l->pos != l->len && isWordSep(l->buf[l->pos]))
-	l->pos++;
-
-    while (l->pos != l->len && !isWordSep(l->buf[l->pos]))
-	l->pos++;
-
+    lnMoveWord(l, 1);
     refreshLine(l);
 }
 
@@ -542,20 +539,18 @@ lnEditMoveRightWord (struct linenoiseState *l)
 void
 lnEditMoveHome (struct linenoiseState *l)
 {
-    if (l->pos != 0) {
-        l->pos = 0;
-        refreshLine(l);
-    }
+    if (l->pos == 0) return;
+    l->pos = 0;
+    refreshLine(l);
 }
 
 /* Move cursor to the end of the line. */
 void
 lnEditMoveEnd(struct linenoiseState *l)
 {
-    if (l->pos != l->len) {
-        l->pos = l->len;
-        refreshLine(l);
-    }
+    if (l->pos == l->len) return;
+    l->pos = l->len;
+    refreshLine(l);
 }
 
 /* Substitute the currently edited line with the next or previous history
@@ -622,10 +617,9 @@ lnEditDeletePrevWord (struct linenoiseState *l)
     size_t old_pos = l->pos;
     size_t diff;
 
-    while (l->pos > 0 && isWordSep(l->buf[l->pos-1]))
-        l->pos--;
-    while (l->pos > 0 && !isWordSep(l->buf[l->pos-1]))
-        l->pos--;
+    if (l->pos == 0) return;
+
+    lnMoveWord(l, -1);
     diff = old_pos - l->pos;
     memmove(l->buf+l->pos,l->buf+old_pos,l->len-old_pos+1);
     l->len -= diff;
@@ -640,12 +634,9 @@ lnEditDeleteNextWord (struct linenoiseState *l)
     size_t old_pos = l->pos;
     size_t diff;
 
-    while (l->pos != l->len && isWordSep(l->buf[l->pos]))
-        l->pos++;
+    if (l->pos == l->len) return;
 
-    while (l->pos != l->len && !isWordSep(l->buf[l->pos]))
-	l->pos++;
-
+    lnMoveWord(l, 1);
     diff = l->pos - old_pos;
     memmove(l->buf+old_pos,l->buf+l->pos,l->len-l->pos+1);
     l->len -= diff;
@@ -664,7 +655,7 @@ lnEditDeleteNextWord (struct linenoiseState *l)
  * The function returns the length of the current buffer. */
 static int
 lnEdit (int stdin_fd, int stdout_fd,
-	       char *buf, size_t buflen, const char *prompt)
+	char *buf, size_t buflen, const char *prompt)
 {
     struct linenoiseState l;
 
@@ -727,7 +718,7 @@ lnEdit (int stdin_fd, int stdout_fd,
             lnEditBackspace(&l);
             break;
         case CTRL_D:     /* ctrl-d, remove char at right of cursor, or of the
-                       line is empty, act as end-of-file. */
+			    line is empty, act as end-of-file. */
             if (l.len > 0) {
                 lnEditDelete(&l);
             } else {
@@ -877,21 +868,12 @@ lnRaw (char *buf, size_t buflen, const char *prompt)
         errno = EINVAL;
         return -1;
     }
-    if (!isatty(STDIN_FILENO)) {
-        /* Not a tty: read from file / pipe. */
-        if (fgets(buf, buflen, stdin) == NULL) return -1;
-        count = strlen(buf);
-        if (count && buf[count-1] == '\n') {
-            count--;
-            buf[count] = '\0';
-        }
-    } else {
-        /* Interactive editing. */
-        if (lnEnableRawMode(STDIN_FILENO) == -1) return -1;
-        count = lnEdit(STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt);
-        lnDisableRawMode(STDIN_FILENO);
-        printf("\n");
-    }
+
+    if (lnEnableRawMode(STDIN_FILENO) == -1) return -1;
+    count = lnEdit(STDIN_FILENO, STDOUT_FILENO, buf, buflen, prompt);
+    lnDisableRawMode(STDIN_FILENO);
+    printf("\n");
+
     return count;
 }
 
@@ -906,23 +888,26 @@ linenoise (const char *prompt)
     char buf[LN_MAX_LINE];
     int count;
 
-    if (isUnsupportedTerm()) {
+    if (isUnsupportedTerm() || !isatty(STDIN_FILENO)) {
         size_t len;
 
-        printf("%s",prompt);
-        fflush(stdout);
+	if (isatty(STDIN_FILENO)) {
+	    printf("%s",prompt);
+	    fflush(stdout);
+	}
+
         if (fgets(buf, LN_MAX_LINE, stdin) == NULL) return NULL;
         len = strlen(buf);
         while(len && (buf[len-1] == '\n' || buf[len-1] == '\r')) {
             len--;
             buf[len] = '\0';
         }
-        return strdup(buf);
     } else {
         count = lnRaw(buf,LN_MAX_LINE,prompt);
         if (count == -1) return NULL;
-        return strdup(buf);
     }
+
+    return strdup(buf);
 }
 
 /* ================================ History ================================= */
@@ -964,10 +949,8 @@ lnHistorySetMaxLen (int len)
 {
     if (len < 1) return 0;
 
-    if (len < (int) history.size()) {
-	while ((int) history.size() >= len) {
-	    history.erase(history.begin());
-	}
+    while ((int) history.size() >= len) {
+	history.erase(history.begin());
     }
 
     history_max_len = len;
