@@ -60,8 +60,25 @@ void linenoiseClearScreen(void);
 void linenoiseSetMultiLine(int ml);
 void linenoisePrintKeyCodes(void);
 
+
 #ifdef __cplusplus
 }
+#endif
+
+
+#ifdef __cplusplus
+#include <string>
+#include <functional>
+#include <vector>
+
+class lnCompletion;
+
+typedef std::vector<lnCompletion> lnCompletionVec;
+typedef std::function<void (const char *, lnCompletionVec *)> lnCompletionFunc;
+
+void lnSetCompletionCallback(lnCompletionFunc fn);
+void lnAddCompletion(lnCompletionVec *, const char *, const char *);
+
 #endif
 
 #endif /* __LINENOISE_H */

@@ -3,6 +3,7 @@
  * 
  * Original License in license.txt file
  */
+#include <functional>
 #include <string>
 #include <termios.h>
 #include <assert.h>
@@ -22,14 +23,26 @@
 
 using namespace std;
 
+class lnCompletion {
+public:
+    lnCompletion(const char *tok, const char *help) :
+	lnc_token(tok), lnc_help(help) {};
+    lnCompletion(const std::string &tok, const std::string &help) :
+	lnc_token(tok), lnc_help(help) {};
+
+    std::string lnc_token;
+    std::string lnc_help;
+};
+
+
 #define LINENOISE_DEFAULT_HISTORY_MAX_LEN 100
 #define LINENOISE_MAX_LINE 4096
 static const char *unsupported_term[] = {"dumb","cons25","emacs",NULL};
 static linenoiseCompletionCallback *completionCallback = NULL;
+static lnCompletionFunc cppCompletionCallback;
 
 static struct termios orig_termios; /* In order to restore at exit.*/
 static int rawmode = 0; /* For atexit() function to check if restore is needed*/
-static int mlmode = 0;  /* Multi line mode. Default is single line. */
 static int atexit_registered = 0; /* Register atexit just 1 time. */
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
@@ -82,6 +95,7 @@ static void refreshSingleLine(struct linenoiseState *l);
 
 /* Debugging macro. */
 #if 1
+FILE *lndebug_fp = NULL;
 #define wndebug(...) \
     do { \
         if (lndebug_fp == NULL) { \
@@ -90,35 +104,12 @@ static void refreshSingleLine(struct linenoiseState *l);
         fprintf(lndebug_fp,  __VA_ARGS__);	\
 	fflush(lndebug_fp);				\
     } while (0)
-#endif
-
-
-#if 1
-FILE *lndebug_fp = NULL;
-#define lndebug(...) \
-    do { \
-        if (lndebug_fp == NULL) { \
-            lndebug_fp = fopen("/tmp/lndebug.txt","a"); \
-            fprintf(lndebug_fp, \
-            "[%d %d %d] p: %d, rows: %d, rpos: %d, max: %d, oldmax: %d\n", \
-            (int)l->len,(int)l->pos,(int)l->oldpos,plen,rows,rpos, \
-            (int)l->maxrows,old_rows); \
-        } \
-        fprintf(lndebug_fp, ", " __VA_ARGS__); \
-        fflush(lndebug_fp); \
-    } while (0)
 #else
-#define lndebug(fmt, ...)
+#define wndebug(fmt, ...)
 #endif
+
 
 /* ======================= Low level terminal handling ====================== */
-
-/* Set if to use or not the multi line mode. */
-void
-linenoiseSetMultiLine (int ml)
-{
-    mlmode = ml;
-}
 
 /* Return true if the terminal name is in the list of terminals we know are
  * not able to understand basic escape sequences. */
@@ -279,35 +270,17 @@ linenoiseBeep(void)
 
 /* ============================== Completion ================================ */
 
-/* Free a list of completion option populated by linenoiseAddCompletion(). */
-static void
-freeCompletions (linenoiseCompletions *lc)
-{
-    size_t i;
-    for (i = 0; i < lc->len; i++)
-        free(lc->cvec[i]);
-    if (lc->cvec != NULL)
-        free(lc->cvec);
-    for (i = 0; i < lc->len; i++) {
-	if (lc->hvec[i]) free(lc->hvec[i]);
-    }
-   if (lc->hvec != NULL)
-        free(lc->hvec);
- }
-
 static string
-longestMatch (linenoiseCompletions *lc)
+longestMatch (std::vector<lnCompletion> *lc)
 {
     const char *s;
-    unsigned int i;
     string longest;
 
-    if (lc->len <= 0) return "";
+    if (lc->size() <= 0) return "";
     
-    longest = lc->cvec[0];
-    wndebug("longM----: %s:%s\n", lc->cvec[0], longest.c_str());
-    for (i = 1; i < lc->len; i++) {
-	s = lc->cvec[i];
+    longest = (*lc)[0].lnc_token;
+    for (auto comp : (*lc)) {
+	s = comp.lnc_token.c_str();
 	while (longest.size() &&
 	       longest.compare(0, longest.size(), s, longest.size())) {
 	    longest = longest.substr(0, longest.size() - 1);
@@ -326,24 +299,28 @@ helpLine (struct linenoiseState *ls)
     
     get_col_row(max_cols, max_rows);
 
-    linenoiseCompletions lc = { 0, NULL, NULL };
+    std::vector<lnCompletion> lc;
 
-    completionCallback(ls->buf,&lc);
+    cppCompletionCallback(ls->buf, &lc);
 
-    if (lc.len == 0) {
+    if (lc.size() == 0) {
 	printf("\r\n *no-match*");
     } else {
-        unsigned int i = 0;
 
 	// maximum rows to display is the screen rows less
 	// 1 for prompt and 1 for the '... more ...' msg
 	if (max_rows > 1) max_rows -= 2;
-			      
-	for (i = 0; i < lc.len && i < max_rows; i++) {
-	    printf("\r\n %-20s %s", lc.cvec[i], lc.hvec[i]);
-	    wndebug("help %d - %s\n", i, lc.cvec[i]);
+
+	unsigned int i = 0;
+	for (auto comp : lc) {
+	    if (i >= max_rows) break;
+	    auto tok = comp.lnc_token.c_str();
+	    auto help = comp.lnc_help.c_str();
+	    printf("\r\n %-20s %s", tok, help);
+	    wndebug("help %d - %s\n", i, tok);
+	    i++;
         }
-	if (lc.len >= max_rows) {
+	if (lc.size() >= max_rows) {
 	    printf("\r\n      ... more ...");
 	    wndebug("need more\n");
 	}
@@ -353,7 +330,6 @@ helpLine (struct linenoiseState *ls)
 
     refreshSingleLine(ls);
     fflush(stdout);
-    freeCompletions(&lc);
     return 0;
 }
 
@@ -366,12 +342,12 @@ helpLine (struct linenoiseState *ls)
 static int
 completeLine (struct linenoiseState *ls)
 {
-    linenoiseCompletions lc = { 0, NULL, NULL };
+    std::vector<lnCompletion> lc;
     int nread, nwritten;
     char c = 0;
 
-    completionCallback(ls->buf,&lc);
-    if (lc.len == 0) {
+    cppCompletionCallback(ls->buf, &lc);
+    if (lc.size() == 0) {
         linenoiseBeep();
     } else {
         size_t stop = 0;
@@ -386,7 +362,6 @@ completeLine (struct linenoiseState *ls)
         while (!stop) {
             nread = read(ls->ifd,&c,1);
             if (nread <= 0) {
-                freeCompletions(&lc);
                 return -1;
             }
 
@@ -403,7 +378,6 @@ completeLine (struct linenoiseState *ls)
         }
     }
 
-    freeCompletions(&lc);
     return c; /* Return last read character */
 }
 
@@ -412,6 +386,24 @@ void
 linenoiseSetCompletionCallback (linenoiseCompletionCallback *fn)
 {
     completionCallback = fn;
+}
+
+void
+lnSetCompletionCallback (lnCompletionFunc fn)
+{
+    cppCompletionCallback = fn;
+}
+
+
+/* This function is used by the callback function registered by the user
+ * in order to add completion options given the input string when the
+ * user typed <tab>. See the example.c source code for a very easy to
+ * understand example. */
+void
+lnAddCompletion (lnCompletionVec *lc,
+			const char *str, const char *help)
+{
+    lc->push_back(lnCompletion(str, help));
 }
 
 /* This function is used by the callback function registered by the user
@@ -481,89 +473,12 @@ refreshSingleLine (struct linenoiseState *l)
     if (write(fd, ab.c_str(), ab.size()) == -1) {} /* Can't recover from write error. */
 }
 
-/* Multi line low level line refresh.
- *
- * Rewrite the currently edited line accordingly to the buffer content,
- * cursor position, and number of columns of the terminal. */
-static void
-refreshMultiLine(struct linenoiseState *l)
-{
-    int plen = strlen(l->prompt);
-    int rows = (plen+l->len+l->cols-1)/l->cols; /* rows used by current buf. */
-    int rpos = (plen+l->oldpos+l->cols)/l->cols; /* cursor relative row. */
-    int rpos2; /* rpos after refresh. */
-    int old_rows = l->maxrows;
-    int fd = l->ofd, j;
-    string_fmt_c ab;
-
-    /* Update maxrows if needed. */
-    if (rows > (int)l->maxrows) l->maxrows = rows;
-
-    /* First step: clear all the lines used before. To do so start by
-     * going to the last row. */
-
-    if (old_rows-rpos > 0) {
-        lndebug("go down %d", old_rows-rpos);
-        ab.append("\x1b[%dB", old_rows-rpos);
-    }
-
-    /* Now for every row clear it, go up. */
-    for (j = 0; j < old_rows-1; j++) {
-        lndebug("clear+up");
-        ab += "\x1b[0G\x1b[0K\x1b[1A";
-    }
-
-    /* Clean the top line. */
-    lndebug("clear");
-    ab += "\x1b[0G\x1b[0K";
-    
-    /* Write the prompt and the current buffer content */
-    ab += l->prompt;
-    ab += l->buf;
-
-
-    /* If we are at the very end of the screen with our prompt, we need to
-     * emit a newline and move the prompt to the first column. */
-    if (l->pos &&
-        l->pos == l->len &&
-        (l->pos+plen) % l->cols == 0)
-    {
-        lndebug("<newline>");
-	ab += "\n";
-	ab += "\x1b[0G";
-        rows++;
-        if (rows > (int)l->maxrows) l->maxrows = rows;
-    }
-
-    /* Move cursor to right position. */
-    rpos2 = (plen+l->pos+l->cols)/l->cols; /* current cursor relative row. */
-    lndebug("rpos2 %d", rpos2);
-
-    /* Go up till we reach the expected positon. */
-    if (rows-rpos2 > 0) {
-        lndebug("go-up %d", rows-rpos2);
-        ab.append("\x1b[%dA", rows-rpos2);
-    }
-
-    /* Set column. */
-    lndebug("set col %d", 1+((plen+(int)l->pos) % (int)l->cols));
-    ab.append("\x1b[%dG", 1+((plen+(int)l->pos) % (int)l->cols));
-
-    lndebug("\n");
-    l->oldpos = l->pos;
-
-    if (write(fd, ab.c_str(), ab.size()) == -1) {} /* Can't recover from write error. */
-}
-
 /* Calls the two low level functions refreshSingleLine() or
  * refreshMultiLine() according to the selected mode. */
 static void
 refreshLine(struct linenoiseState *l)
 {
-    if (mlmode)
-        refreshMultiLine(l);
-    else
-        refreshSingleLine(l);
+    refreshSingleLine(l);
 }
 
 /* Insert the character 'c' at cursor current position.
@@ -578,7 +493,7 @@ linenoiseEditInsert (struct linenoiseState *l, char c)
             l->pos++;
             l->len++;
             l->buf[l->len] = '\0';
-            if ((!mlmode && l->plen+l->len < l->cols) /* || mlmode */) {
+            if (l->plen+l->len < l->cols) {
                 /* Avoid a full update of the line in the
                  * trivial case. */
                 if (write(l->ofd,&c,1) == -1) return -1;
@@ -819,7 +734,7 @@ linenoiseEdit (int stdin_fd, int stdout_fd,
         /* Only autocomplete when the callback is set. It returns < 0 when
          * there was an error reading from fd. Otherwise it will return the
          * character that should be handled next. */
-	if (completionCallback) {
+	if (cppCompletionCallback) {
 	    if (c == TAB) {
 		c = completeLine(&l);
 		/* Return on errors */

@@ -4,7 +4,6 @@
 #include <string.h>
 #include "linenoise.h"
 
-#define NUM_OF(x) ((sizeof(x))/(sizeof(x[0])))
 #define UNUSED __attribute__((unused))
 
 typedef void (*command_action_t)(const char *line);
@@ -19,7 +18,7 @@ typedef struct command_s {
  * between the '<>' enter the return type and function
  * arguments.
  */
-typedef std::function<void (command_t *, const char *buf)> complete_cb;
+typedef std::function<void (command_t &)> complete_cb;
 
 static void help_cmd_action(const char *);
 static void quit_cmd_action(const char *);
@@ -42,55 +41,26 @@ command_t cmds[] = {
     { "blah7", "help for blah7", generic_cmd_action },
     { "blah8", "help for blah8", generic_cmd_action },
     { "blah9", "help for blah9", generic_cmd_action },
-    { "blah10", "help for blah10", generic_cmd_action },
-    { "blah11", "help for blah11", generic_cmd_action },
-    { "blah12", "help for blah12", generic_cmd_action },
-    { "blah13", "help for blah13", generic_cmd_action },
-    { "blah14", "help for blah14", generic_cmd_action },
-    { "blah15", "help for blah15", generic_cmd_action },
-    { "blah16", "help for blah16", generic_cmd_action },
-    { "blah17", "help for blah17", generic_cmd_action },
-    { "blah18", "help for blah18", generic_cmd_action },
-    { "blah19", "help for blah19", generic_cmd_action },
-    { "blah20", "help for blah20", generic_cmd_action },
-    { "blah21", "help for blah21", generic_cmd_action },
-    { "blah22", "help for blah22", generic_cmd_action },
-    { "blah23", "help for blah23", generic_cmd_action },
-    { "blah24", "help for blah24", generic_cmd_action },
-    { "blah25", "help for blah25", generic_cmd_action },
-    { "blah26", "help for blah26", generic_cmd_action },
-    { "blah27", "help for blah27", generic_cmd_action },
-    { "blah28", "help for blah28", generic_cmd_action },
-    { "blah29", "help for blah29", generic_cmd_action },
-    { "blah30", "help for blah30", generic_cmd_action },
-    { "blah31", "help for blah31", generic_cmd_action },
-    { "blah32", "help for blah32", generic_cmd_action },
-    { "blah33", "help for blah33", generic_cmd_action },
-    { "blah34", "help for blah34", generic_cmd_action },
-    { "blah35", "help for blah35", generic_cmd_action },
-    { "blah36", "help for blah36", generic_cmd_action },
-    { "blah37", "help for blah37", generic_cmd_action },
-    { "blah38", "help for blah38", generic_cmd_action },
-    { "blah39", "help for blah39", generic_cmd_action },
 };
 
-void
+static void
 help_cmd_action (const char *line)
 {
     printf("help for '%s'\n", line);
 }
 
-void
+static void
 generic_cmd_action (const char *line)
 {
     printf("generic for '%s'\n", line);
 }
 
-void
+static void
 quit_cmd_action (const char *line UNUSED)
 {
     exit(0);
 }
+
 static int
 match_prefix (const char *whole, const char *partial) 
 {
@@ -98,37 +68,23 @@ match_prefix (const char *whole, const char *partial)
 	strncmp(whole, partial, strlen(partial)) == 0;
 }
 
-/*
- * supporting routine to find a matching command in the 'cmds_table'
- */
-void
-completion (const char *buf, complete_cb cb)
+static void
+command_match (const char *buf, complete_cb cb)
 {
-    unsigned int i;
-
-    for (i = 0; i < NUM_OF(cmds); i++) {
-	if (match_prefix(cmds[i].c_token, buf))
-	    cb(&cmds[i], buf);
+    for (auto cmd : cmds) {
+	if (match_prefix(cmd.c_token, buf))
+	    cb(cmd);
     }
-}
-
-void
-completion_ln (const char *buf, linenoiseCompletions *lc)
-{
-    completion(buf, [lc] (command_t *cmd, const char *buf UNUSED) -> void {
-	    linenoiseAddCompletion(lc, cmd->c_token, cmd->c_help);
-	}
-    );
 }
 
 void
 call_command (const char *buf)
 {
     int n_commands = 0;
-    command_t *found_cmd;
+    command_action_t found_action = NULL;
     
-    completion(buf, [&] (command_t *cmd, const char *buf UNUSED) {
-	    found_cmd = cmd;
+    command_match(buf, [&] (command_t &cmd) {
+	    found_action = cmd.c_action;
 	    n_commands++;
 	});
 
@@ -140,7 +96,7 @@ call_command (const char *buf)
 	linenoiseHistoryAdd(buf);
 	linenoiseHistorySave("history.txt");
 
-	found_cmd->c_action(buf);
+	found_action(buf);
 	break;
     default:
 	printf("More than one command matched\n");
@@ -154,24 +110,24 @@ main (int argc, char **argv)
     char *line;
     char *prgname = argv[0];
 
-    /* Parse options, with --multiline we enable multi line editing. */
+    /* Parse options  */
     while (argc > 1) {
         argc--;
         argv++;
-        if (!strcmp(*argv,"--multiline")) {
-            linenoiseSetMultiLine(1);
-            printf("Multi-line mode enabled.\n");
-        } else if (!strcmp(*argv,"--keycodes")) {
+        if (!strcmp(*argv,"--keycodes")) {
             linenoisePrintKeyCodes();
             exit(0);
         } else {
-            fprintf(stderr, "Usage: %s [--multiline] [--keycodes]\n", prgname);
+            fprintf(stderr, "Usage: %s [--keycodes]\n", prgname);
             exit(1);
         }
     }
 
-    linenoiseSetCompletionCallback(completion_ln);
-
+    lnSetCompletionCallback([] (const char *buf, lnCompletionVec *lc) {
+	    command_match(buf, [lc] (command_t &cmd) {
+		    lnAddCompletion(lc, cmd.c_token, cmd.c_help);
+		});
+	});
     linenoiseHistoryLoad("history.txt");
 
     /*

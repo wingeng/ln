@@ -8,7 +8,7 @@ linenoise_example: linenoise.a example.cpp
 	$(CXX) $(CXX_FLAGS)  -o example.o -c example.cpp
 	$(CXX)  -o linenoise_example example.o linenoise.o ./linenoise.a
 
-linenoise.a: linenoise.cpp string_fmt.cpp
+linenoise.a: linenoise.h linenoise.cpp string_fmt.cpp
 	$(CXX) $(CXX_FLAGS) -o linenoise.o -c linenoise.cpp
 	$(CXX) $(CXX_FLAGS) -o string_fmt.o -c string_fmt.cpp
 	$(AR) rcs linenoise.a linenoise.o string_fmt.o
