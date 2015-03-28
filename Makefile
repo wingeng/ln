@@ -9,7 +9,7 @@ all: linenoise_example keycodes
 example.o: linenoise.h
 linenoise.o: linenoise.h
 
-linenoise_example: linenoise.a example.o
+linenoise_example: linenoise.a example.o key_state_machine.o
 	$(CXX) $(CXXFLAGS) -o linenoise_example example.o  ./linenoise.a
 
 linenoise.a: linenoise.h linenoise.o string_fmt.o

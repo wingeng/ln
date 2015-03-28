@@ -75,4 +75,6 @@ void lnAddCompletion(lnCompletionVec *, const char *, const char *);
 #define STDIN_FILENO 0
 #endif
 
+#define UNUSED __attribute__((unused))
+
 #endif /* __LINENOISE_H */

@@ -62,7 +62,7 @@ struct linenoiseState {
     size_t cols;        /* Number of columns in terminal. */
 };
 
-enum KEY_ACTION{
+enum KEY_ACTION {
 	KEY_NULL = 0,	    /* NULL */
 	CTRL_A = 1,         /* Ctrl+a */
 	CTRL_B = 2,         /* Ctrl-b */
@@ -95,7 +95,7 @@ FILE *lndebug_fp = NULL;
 #define wndebug(...) \
     do { \
         if (lndebug_fp == NULL) { \
-            lndebug_fp = fopen("/tmp/lndebug.txt","a"); \
+            lndebug_fp = fopen("/tmp/lndebug.txt", "a"); \
 	} \
         fprintf(lndebug_fp,  __VA_ARGS__);	\
 	fflush(lndebug_fp);				\
@@ -660,7 +660,8 @@ lnEdit (int stdin_fd, int stdout_fd,
     linenoiseHistoryAdd("");
     
     if (write(l.ofd, prompt, l.plen) == -1) return -1;
-    while(1) {
+
+    while (1) {
         char c;
         int nread;
         char seq[3];
