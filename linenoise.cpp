@@ -60,7 +60,6 @@ struct linenoiseState {
     size_t oldpos;      /* Previous refresh cursor position. */
     size_t len;         /* Current edited line length. */
     size_t cols;        /* Number of columns in terminal. */
-    int history_index;  /* The history index we are currently editing. */
 };
 
 enum KEY_ACTION{
@@ -544,25 +543,25 @@ lnEditMoveEnd (struct linenoiseState *l)
 #define LN_HISTORY_NEXT 0
 #define LN_HISTORY_PREV 1
 void
-lnEditHistoryNext (struct linenoiseState *l, int dir)
+lnEditHistoryNext (struct linenoiseState *l, int *history_index, int dir)
 {
     if (history.size() > 1) {
 	auto history_len = (int) history.size();
 
         /* Update the current history entry before to
          * overwrite it with the next one. */
-        history[history_len - 1 - l->history_index] = l->buf;
+        history[history_len - 1 - *history_index] = l->buf;
 	
         /* Show the new entry */
-        l->history_index += (dir == LN_HISTORY_PREV) ? 1 : -1;
-        if (l->history_index < 0) {
-            l->history_index = 0;
+        *history_index += (dir == LN_HISTORY_PREV) ? 1 : -1;
+        if (*history_index < 0) {
+            *history_index = 0;
             return;
-        } else if (l->history_index >= history_len) {
-            l->history_index = history_len - 1;
+        } else if (*history_index >= history_len) {
+            *history_index = history_len - 1;
             return;
         }
-        strncpy(l->buf, history[history_len - 1 - l->history_index].c_str(), l->buflen);
+        strncpy(l->buf, history[history_len - 1 - *history_index].c_str(), l->buflen);
         l->buf[l->buflen-1] = '\0';
         l->len = l->pos = strlen(l->buf);
     }
@@ -638,6 +637,7 @@ lnEdit (int stdin_fd, int stdout_fd,
 	char *buf, size_t buflen, const char *prompt)
 {
     struct linenoiseState l;
+    int history_index = 0;
 
     /* Populate the linenoise state that we pass to functions implementing
      * specific editing functionalities. */
@@ -650,7 +650,6 @@ lnEdit (int stdin_fd, int stdout_fd,
     l.oldpos = l.pos = 0;
     l.len = 0;
     l.cols = getColumns(stdin_fd, stdout_fd);
-    l.history_index = 0;
 
     /* Buffer starts empty. */
     l.buf[0] = '\0';
@@ -721,10 +720,10 @@ lnEdit (int stdin_fd, int stdout_fd,
             lnEditMoveRight(&l);
             break;
         case CTRL_P:    /* ctrl-p */
-            lnEditHistoryNext(&l, LN_HISTORY_PREV);
+            lnEditHistoryNext(&l, &history_index, LN_HISTORY_PREV);
             break;
         case CTRL_N:    /* ctrl-n */
-            lnEditHistoryNext(&l, LN_HISTORY_NEXT);
+            lnEditHistoryNext(&l, &history_index, LN_HISTORY_NEXT);
             break;
         case ESC:    /* escape sequence */
 	    /* Use first byte following ESC to determine if additional
@@ -747,10 +746,10 @@ lnEdit (int stdin_fd, int stdout_fd,
                 } else {
                     switch(seq[1]) {
                     case 'A': /* Up */
-                        lnEditHistoryNext(&l, LN_HISTORY_PREV);
+                        lnEditHistoryNext(&l, &history_index, LN_HISTORY_PREV);
                         break;
                     case 'B': /* Down */
-                        lnEditHistoryNext(&l, LN_HISTORY_NEXT);
+                        lnEditHistoryNext(&l, &history_index, LN_HISTORY_NEXT);
                         break;
                     case 'C': /* Right */
                         lnEditMoveRight(&l);
