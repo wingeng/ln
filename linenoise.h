@@ -71,4 +71,8 @@ void lnAddCompletion(lnCompletionVec *, const char *, const char *);
 
 #endif
 
+#ifndef STDIN_FILENO
+#define STDIN_FILENO 0
+#endif
+
 #endif /* __LINENOISE_H */
