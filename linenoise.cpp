@@ -20,6 +20,7 @@
 
 #include "string_fmt.h"
 #include "linenoise.h"
+#include "linenoise_private.h"
 
 using namespace std;
 
@@ -33,6 +34,10 @@ public:
     std::string lnc_token;
     std::string lnc_help;
 };
+
+#define ESC	27
+#define TAB	9
+
 
 #define LN_DEFAULT_HISTORY_MAX_LEN 100
 #define LN_MAX_LINE 4096
@@ -60,34 +65,15 @@ struct linenoiseState {
     size_t oldpos;      /* Previous refresh cursor position. */
     size_t len;         /* Current edited line length. */
     size_t cols;        /* Number of columns in terminal. */
-};
 
-enum KEY_ACTION {
-	KEY_NULL = 0,	    /* NULL */
-	CTRL_A = 1,         /* Ctrl+a */
-	CTRL_B = 2,         /* Ctrl-b */
-	CTRL_C = 3,         /* Ctrl-c */
-	CTRL_D = 4,         /* Ctrl-d */
-	CTRL_E = 5,         /* Ctrl-e */
-	CTRL_F = 6,         /* Ctrl-f */
-	CTRL_H = 8,         /* Ctrl-h */
-	TAB = 9,            /* Tab */
-	CTRL_K = 11,        /* Ctrl+k */
-	CTRL_L = 12,        /* Ctrl+l */
-	ENTER = 13,         /* Enter */
-	CTRL_N = 14,        /* Ctrl-n */
-	CTRL_P = 16,        /* Ctrl-p */
-	CTRL_T = 20,        /* Ctrl-t */
-	CTRL_U = 21,        /* Ctrl+u */
-	CTRL_W = 23,        /* Ctrl+w */
-	ESC = 27,           /* Escape */
-	BACKSPACE =  127    /* Backspace */
+    int history_index;
+    int edit_done;      /* set non-zero when done with editing line */
 };
 
 static void lnAtExit(void);
 int lnHistoryAdd(const char *line);
-static void refreshLine(struct linenoiseState *l);
-static void refreshSingleLine(struct linenoiseState *l);
+static void refreshLine(struct linenoiseState *ls);
+static void refreshSingleLine(struct linenoiseState *ls);
 
 /* Debugging macro. */
 #if 1
@@ -247,7 +233,7 @@ getColumns (int ifd, int ofd)
 
 /* Clear the screen. Used to handle ctrl+l */
 void
-linenoiseClearScreen (void)
+lnClearScreen (linenoiseState *ls UNUSED)
 {
     if (write(STDOUT_FILENO, "\x1b[H\x1b[2J", 7) <= 0) {
         /* nothing to do, just to avoid warning. */
@@ -330,12 +316,14 @@ helpLine (struct linenoiseState *ls)
  * 
  * The state of the editing is encapsulated into the pointed linenoiseState
  * structure as described in the structure definition. */
-static int
+static void
 completeLine (struct linenoiseState *ls)
 {
     std::vector<lnCompletion> lc;
     int nread, nwritten;
     char c = 0;
+
+    if (!cppCompletionCallback) return;
 
     cppCompletionCallback(ls->buf, &lc);
     if (lc.size() == 0) {
@@ -353,10 +341,10 @@ completeLine (struct linenoiseState *ls)
         while (!stop) {
             nread = read(ls->ifd, &c, 1);
             if (nread <= 0) {
-                return -1;
+		assert(0);
             }
 
-            switch(c) {
+            switch (c) {
 	    case TAB:
 		lnBeep();
 	    case '?':
@@ -369,7 +357,7 @@ completeLine (struct linenoiseState *ls)
         }
     }
 
-    return c; /* Return last read character */
+    ln_push_char(c);
 }
 
 /* Register a callback function to be called for tab-completion. */
@@ -399,21 +387,21 @@ lnAddCompletion (lnCompletionVec *lc, const char *str, const char *help)
  * Rewrite the currently edited line accordingly to the buffer content,
  * cursor position, and number of columns of the terminal. */
 static void
-refreshSingleLine (struct linenoiseState *l)
+refreshSingleLine (struct linenoiseState *ls)
 {
-    size_t plen = strlen(l->prompt);
-    int fd = l->ofd;
-    char *buf = l->buf;
-    size_t len = l->len;
-    size_t pos = l->pos;
+    size_t plen = strlen(ls->prompt);
+    int fd = ls->ofd;
+    char *buf = ls->buf;
+    size_t len = ls->len;
+    size_t pos = ls->pos;
     string_fmt_c ab;
     
-    while ((plen + pos) >= l->cols) {
+    while ((plen + pos) >= ls->cols) {
         buf++;
         len--;
         pos--;
     }
-    while ((plen + len) > l->cols) {
+    while ((plen + len) > ls->cols) {
         len--;
     }
 
@@ -421,7 +409,7 @@ refreshSingleLine (struct linenoiseState *l)
     ab = "\x1b[0G";
 
     /* Write the prompt and the current buffer content */
-    ab += l->prompt;
+    ab += ls->prompt;
     ab += buf;
 
     /* Erase to right */
@@ -436,54 +424,57 @@ refreshSingleLine (struct linenoiseState *l)
 /* Calls the two low level functions refreshSingleLine() or
  * refreshMultiLine() according to the selected mode. */
 static void
-refreshLine(struct linenoiseState *l)
+refreshLine(struct linenoiseState *ls)
 {
-    refreshSingleLine(l);
+    refreshSingleLine(ls);
 }
 
 /* Insert the character 'c' at cursor current position.
  *
  * On error writing to the terminal -1 is returned, otherwise 0. */
 int
-lnEditInsert (struct linenoiseState *l, char c)
+lnEditInsert (struct linenoiseState *ls, char c)
 {
-    if (l->len < l->buflen) {
-        if (l->len == l->pos) {
-            l->buf[l->pos] = c;
-            l->pos++;
-            l->len++;
-            l->buf[l->len] = '\0';
-            if (l->plen+l->len < l->cols) {
+    if (c <= ESC) return 0;
+
+    if (ls->len < ls->buflen) {
+        if (ls->len == ls->pos) {
+            ls->buf[ls->pos] = c;
+            ls->pos++;
+            ls->len++;
+            ls->buf[ls->len] = '\0';
+            if (ls->plen+ls->len < ls->cols) {
                 /* Avoid a full update of the line in the
                  * trivial case. */
-                if (write(l->ofd, &c, 1) == -1) return -1;
+                if (write(ls->ofd, &c, 1) == -1) return -1;
             }
         } else {
-            memmove(l->buf+l->pos+1, l->buf + l->pos, l->len-l->pos);
-            l->buf[l->pos] = c;
-            l->len++;
-            l->pos++;
-            l->buf[l->len] = '\0';
+            memmove(ls->buf+ls->pos + 1, ls->buf + ls->pos, ls->len-ls->pos);
+            ls->buf[ls->pos] = c;
+            ls->len++;
+            ls->pos++;
+            ls->buf[ls->len] = '\0';
         }
     }
+    refreshLine(ls);
     return 0;
 }
 
 /* Move cursor on the left. */
 void
-lnEditMoveLeft (struct linenoiseState *l)
+lnEditMoveLeft (struct linenoiseState *ls)
 {
-    if (l->pos > 0) {
-        l->pos--;
+    if (ls->pos > 0) {
+        ls->pos--;
     }
 }
 
 /* Move cursor on the right. */
 void
-lnEditMoveRight (struct linenoiseState *l)
+lnEditMoveRight (struct linenoiseState *ls)
 {
-    if (l->pos != l->len) {
-        l->pos++;
+    if (ls->pos != ls->len) {
+        ls->pos++;
     }
 }
 
@@ -494,66 +485,63 @@ isWordSep (int ch)
 }
 
 static void
-lnMoveWord (struct linenoiseState *l, int dir)
+lnMoveWord (struct linenoiseState *ls, int dir)
 {
-    if ((int) l->pos + dir < 0) return;
-    if ((int) l->pos + dir >= (int) l->len) return;
+    if ((int) ls->pos + dir < 0) return;
+    if ((int) ls->pos + dir >= (int) ls->len) return;
 
-    l->pos += dir;
-    while (l->pos > 0 && l->pos != l->len && isWordSep(l->buf[l->pos]))
-	l->pos += dir;
+    ls->pos += dir;
+    while (ls->pos > 0 && ls->pos != ls->len && isWordSep(ls->buf[ls->pos]))
+	ls->pos += dir;
 
-    while (l->pos > 0 && l->pos != l->len && !isWordSep(l->buf[l->pos-1]))
-	l->pos += dir;
+    while (ls->pos > 0 && ls->pos != ls->len && !isWordSep(ls->buf[ls->pos-1]))
+	ls->pos += dir;
 }
 
 static void
-lnEditMoveLeftWord (struct linenoiseState *l)
+lnEditMoveLeftWord (struct linenoiseState *ls)
 {
-    if (l->pos == 0) return;
-    lnMoveWord(l, -1);
+    if (ls->pos == 0) return;
+    lnMoveWord(ls, -1);
 }
 
 static void
-lnEditMoveRightWord (struct linenoiseState *l)
+lnEditMoveRightWord (struct linenoiseState *ls)
 {
-    if (l->pos == l->len) return;
-    lnMoveWord(l, 1);
+    if (ls->pos == ls->len) return;
+    lnMoveWord(ls, 1);
 }
 
-
-/* Move cursor to the start of the line. */
-void
-lnEditMoveHome (struct linenoiseState *l)
+static void
+lnEditMoveHome (struct linenoiseState *ls)
 {
-    if (l->pos == 0) return;
-    l->pos = 0;
+    if (ls->pos == 0) return;
+    ls->pos = 0;
 }
 
-/* Move cursor to the end of the line. */
-void
-lnEditMoveEnd (struct linenoiseState *l)
+static void
+lnEditMoveEnd (struct linenoiseState *ls)
 {
-    if (l->pos == l->len) return;
-    l->pos = l->len;
+    if (ls->pos == ls->len) return;
+    ls->pos = ls->len;
 }
 
 /* Substitute the currently edited line with the next or previous history
  * entry as specified by 'dir'. */
-#define LN_HISTORY_NEXT 0
-#define LN_HISTORY_PREV 1
-void
-lnEditHistoryNext (struct linenoiseState *l, int *history_index, int dir)
+static void
+editHistoryNext (struct linenoiseState *ls, int dir)
 {
+    int *history_index = &ls->history_index;
+
     if (history.size() > 1) {
 	auto history_len = (int) history.size();
 
         /* Update the current history entry before to
          * overwrite it with the next one. */
-        history[history_len - 1 - *history_index] = l->buf;
+        history[history_len - 1 - *history_index] = ls->buf;
 	
         /* Show the new entry */
-        *history_index += (dir == LN_HISTORY_PREV) ? 1 : -1;
+        *history_index += dir;
         if (*history_index < 0) {
             *history_index = 0;
             return;
@@ -561,67 +549,116 @@ lnEditHistoryNext (struct linenoiseState *l, int *history_index, int dir)
             *history_index = history_len - 1;
             return;
         }
-        strncpy(l->buf, history[history_len - 1 - *history_index].c_str(), l->buflen);
-        l->buf[l->buflen-1] = '\0';
-        l->len = l->pos = strlen(l->buf);
+        strncpy(ls->buf, history[history_len - 1 - *history_index].c_str(), ls->buflen);
+        ls->buf[ls->buflen - 1] = '\0';
+        ls->len = ls->pos = strlen(ls->buf);
     }
 }
+
+static void
+lnEditHistoryPrev (linenoiseState *ls)
+{
+    editHistoryNext(ls, 1);
+}
+
+static void
+lnEditHistoryNext (linenoiseState *ls)
+{
+    editHistoryNext(ls, -1);
+}
+
 
 /* Delete the character at the right of the cursor without altering the cursor
  * position. Basically this is what happens with the "Delete" keyboard key. */
 void
-lnEditDelete (struct linenoiseState *l)
+lnEditDelete (struct linenoiseState *ls)
 {
-    if (l->len > 0 && l->pos < l->len) {
-        memmove(l->buf+l->pos, l->buf+l->pos+1, l->len-l->pos-1);
-        l->len--;
-        l->buf[l->len] = '\0';
+    if (ls->len > 0 && ls->pos < ls->len) {
+        memmove(ls->buf+ls->pos, ls->buf+ls->pos+1, ls->len-ls->pos-1);
+        ls->len--;
+        ls->buf[ls->len] = '\0';
     }
 }
 
-/* Backspace implementation. */
 void
-lnEditBackspace (struct linenoiseState *l)
+lnEditBackspace (struct linenoiseState *ls)
 {
-    if (l->pos > 0 && l->len > 0) {
-        memmove(l->buf+l->pos-1, l->buf+l->pos, l->len-l->pos);
-        l->pos--;
-        l->len--;
-        l->buf[l->len] = '\0';
+    if (ls->pos > 0 && ls->len > 0) {
+        memmove(ls->buf+ls->pos-1, ls->buf+ls->pos, ls->len-ls->pos);
+        ls->pos--;
+        ls->len--;
+        ls->buf[ls->len] = '\0';
     }
 }
 
 /* Delete the previous word, maintaining the cursor at the start of the
  * current word. */
 void
-lnEditDeletePrevWord (struct linenoiseState *l)
+lnEditDeletePrevWord (struct linenoiseState *ls)
 {
-    size_t old_pos = l->pos;
+    size_t old_pos = ls->pos;
     size_t diff;
 
-    if (l->pos == 0) return;
+    if (ls->pos == 0) return;
 
-    lnMoveWord(l, -1);
-    diff = old_pos - l->pos;
-    memmove(l->buf+l->pos, l->buf+old_pos, l->len-old_pos+1);
-    l->len -= diff;
+    lnMoveWord(ls, -1);
+    diff = old_pos - ls->pos;
+    memmove(ls->buf+ls->pos, ls->buf+old_pos, ls->len-old_pos+1);
+    ls->len -= diff;
 }
 
 /* Delete the next word, maintaining the cursor at the start of the
  * current word. */
 void
-lnEditDeleteNextWord (struct linenoiseState *l)
+lnEditDeleteNextWord (struct linenoiseState *ls)
 {
-    size_t old_pos = l->pos;
+    size_t old_pos = ls->pos;
     size_t diff;
 
-    if (l->pos == l->len) return;
+    if (ls->pos == ls->len) return;
 
-    lnMoveWord(l, 1);
-    diff = l->pos - old_pos;
-    memmove(l->buf+old_pos, l->buf+l->pos, l->len-l->pos+1);
-    l->len -= diff;
-    l->pos = old_pos;
+    lnMoveWord(ls, 1);
+    diff = ls->pos - old_pos;
+    memmove(ls->buf + old_pos, ls->buf + ls->pos, ls->len - ls->pos+1);
+    ls->len -= diff;
+    ls->pos = old_pos;
+}
+
+static void
+lnEditSwap (linenoiseState *ls)
+{
+    if (ls->pos > 0 && ls->pos < ls->len) {
+	int aux = ls->buf[ls->pos - 1];
+	ls->buf[ls->pos - 1] = ls->buf[ls->pos];
+	ls->buf[ls->pos] = aux;
+	if (ls->pos != ls->len-1) (ls->pos)++;
+    }
+}
+
+static void
+lnEditDeleteLine (linenoiseState *ls)
+{
+    ls->buf = '\0';
+    ls->pos = ls->len = 0;
+}
+
+static void
+lnEditDeleteToEOL (linenoiseState *ls)
+{
+    ls->buf[ls->pos] = '\0';
+    ls->len = ls->pos;
+}
+
+typedef void (ln_func_t)(linenoiseState *);
+
+static cmd_func
+ln_cmd (linenoiseState *ls, ln_func_t func)
+{
+    return [ls, func] (int ch UNUSED) {
+	func(ls);
+	refreshLine(ls);
+	return 0;
+    };
 }
 
 /* This function is the core of the line editing capability of linenoise.
@@ -637,7 +674,7 @@ lnEdit (int stdin_fd, int stdout_fd,
 	char *buf, size_t buflen, const char *prompt)
 {
     struct linenoiseState l;
-    int history_index = 0;
+    struct linenoiseState *ls = &l;
 
     /* Populate the linenoise state that we pass to functions implementing
      * specific editing functionalities. */
@@ -650,6 +687,8 @@ lnEdit (int stdin_fd, int stdout_fd,
     l.oldpos = l.pos = 0;
     l.len = 0;
     l.cols = getColumns(stdin_fd, stdout_fd);
+    l.edit_done = 0;
+    l.history_index = 0;
 
     /* Buffer starts empty. */
     l.buf[0] = '\0';
@@ -661,178 +700,81 @@ lnEdit (int stdin_fd, int stdout_fd,
     
     if (write(l.ofd, prompt, l.plen) == -1) return -1;
 
-    while (1) {
-        char c;
-        int nread;
-        char seq[3];
-
-        nread = read(l.ifd, &c, 1);
-        if (nread <= 0) return l.len;
-
-        /* Only autocomplete when the callback is set. It returns < 0 when
-         * there was an error reading from fd. Otherwise it will return the
-         * character that should be handled next. */
-	if (cppCompletionCallback) {
-	    if (c == TAB) {
-		c = completeLine(&l);
-		/* Return on errors */
-		if (c < 0) return l.len;
-		/* Read next character when 0 */
-		if (c == 0) continue;
-	    } else if (c == '?') {
-		helpLine(&l);
-		continue;
-	    }
-	    
-        }
-
-        switch(c) {
-        case ENTER:
+    ln_add_key_handler(S_CTRL('M'), [ls] (int ch UNUSED) {
 	    history.pop_back();
-            return (int) l.len;
-        case CTRL_C:
+	    refreshLine(ls);
+	    ls->edit_done = 1;
+            return (int) ls->len;
+	});
+
+    ln_add_key_handler(S_CTRL('C'), [ls] (int ch UNUSED) {
             errno = EAGAIN;
+	    ls->edit_done = 1;
             return -1;
-        case BACKSPACE:
-        case CTRL_H:
-            lnEditBackspace(&l);
-            break;
-        case CTRL_D:     /* ctrl-d, remove char at right of cursor, or of the
-			    line is empty, act as end-of-file. */
-            if (l.len > 0) {
-                lnEditDelete(&l);
+	});
+
+    ln_add_key_handler(S_TAB, 	ln_cmd(ls, completeLine));
+    ln_add_key_handler("?", 	ln_cmd(ls, helpLine));
+    ln_add_key_handler(S_CTRL('H'), ln_cmd(ls, lnEditBackspace));
+    ln_add_key_handler(S_BSPACE,    ln_cmd(ls, lnEditBackspace));
+    ln_add_key_handler(S_CTRL('T'), ln_cmd(ls, lnEditSwap));
+    ln_add_key_handler(S_CTRL('B'), ln_cmd(ls, lnEditMoveLeft));
+    ln_add_key_handler(S_CTRL('F'), ln_cmd(ls, lnEditMoveRight));
+    ln_add_key_handler(S_CTRL('P'), ln_cmd(ls, lnEditHistoryPrev));
+    ln_add_key_handler(S_CTRL('N'), ln_cmd(ls, lnEditHistoryNext));
+    ln_add_key_handler(S_CTRL('U'), ln_cmd(ls, lnEditDeleteLine));
+    ln_add_key_handler(S_CTRL('K'), ln_cmd(ls, lnEditDeleteToEOL));
+    ln_add_key_handler(S_CTRL('A'), ln_cmd(ls, lnEditMoveHome));
+    ln_add_key_handler(S_CTRL('E'), ln_cmd(ls, lnEditMoveEnd));
+    ln_add_key_handler(S_CTRL('L'), ln_cmd(ls, lnClearScreen));
+    ln_add_key_handler(S_CTRL('W'), ln_cmd(ls, lnEditDeletePrevWord));
+
+    ln_add_key_handler(S_CTRL('D'), [ls] (int ch UNUSED) {
+            if (ls->len > 0) {
+                lnEditDelete(ls);
+		refreshLine(ls);
+		return 0;
             } else {
 		history.pop_back();
+		ls->edit_done = 1;
                 return -1;
             }
-            break;
-        case CTRL_T:    /* ctrl-t, swaps current character with previous. */
-            if (l.pos > 0 && l.pos < l.len) {
-                int aux = buf[l.pos-1];
-                buf[l.pos-1] = buf[l.pos];
-                buf[l.pos] = aux;
-                if (l.pos != l.len-1) l.pos++;
-            }
-            break;
-        case CTRL_B:     /* ctrl-b */
-            lnEditMoveLeft(&l);
-            break;
-        case CTRL_F:     /* ctrl-f */
-            lnEditMoveRight(&l);
-            break;
-        case CTRL_P:    /* ctrl-p */
-            lnEditHistoryNext(&l, &history_index, LN_HISTORY_PREV);
-            break;
-        case CTRL_N:    /* ctrl-n */
-            lnEditHistoryNext(&l, &history_index, LN_HISTORY_NEXT);
-            break;
-        case ESC:    /* escape sequence */
-	    /* Use first byte following ESC to determine if additional
-	     * reads are necessary */
-            if (read(l.ifd, seq, 1) == -1) break;
+	});
 
-            /* ESC [ sequences. Additional 2 or 3 bytes */
-            if (seq[0] == '[') {
-		if (read(l.ifd, seq + 1, 1) == -1) break;
-                if (seq[1] >= '0' && seq[1] <= '9') {
-                    /* Extended escape, read additional byte. */
-                    if (read(l.ifd, seq + 2, 1) == -1) break;
-                    if (seq[2] == '~') {
-                        switch(seq[1]) {
-                        case '3': /* Delete key. */
-                            lnEditDelete(&l);
-                            break;
-                        }
-                    }
-                } else {
-                    switch(seq[1]) {
-                    case 'A': /* Up */
-                        lnEditHistoryNext(&l, &history_index, LN_HISTORY_PREV);
-                        break;
-                    case 'B': /* Down */
-                        lnEditHistoryNext(&l, &history_index, LN_HISTORY_NEXT);
-                        break;
-                    case 'C': /* Right */
-                        lnEditMoveRight(&l);
-                        break;
-                    case 'D': /* Left */
-                        lnEditMoveLeft(&l);
-                        break;
-                    case 'H': /* Home */
-                        lnEditMoveHome(&l);
-                        break;
-                    case 'F': /* End*/
-                        lnEditMoveEnd(&l);
-                        break;
-                    }
-                }
-            }
+    ln_add_key_handler(S_ESC S_BRACKET "3~", ln_cmd(ls, lnEditDelete));
 
-            /* ESC O sequences. 2 bytes */
-            else if (seq[0] == 'O') {
-		if (read(l.ifd, seq + 1, 1) == -1) break;
-                switch(seq[1]) {
-                case 'H': /* Home */
-                    lnEditMoveHome(&l);
-                    break;
-                case 'F': /* End*/
-                    lnEditMoveEnd(&l);
-                    break;
-                }
-            }
+    ln_add_key_handler(S_ESC S_BRACKET "A", ln_cmd(ls, lnEditHistoryPrev));
+    ln_add_key_handler(S_ESC S_BRACKET "B", ln_cmd(ls, lnEditHistoryNext));
+    ln_add_key_handler(S_ESC S_BRACKET "C", ln_cmd(ls, lnEditMoveRight));
+    ln_add_key_handler(S_ESC S_BRACKET "D", ln_cmd(ls, lnEditMoveLeft));
+    ln_add_key_handler(S_ESC S_BRACKET "H", ln_cmd(ls, lnEditMoveHome));
+    ln_add_key_handler(S_ESC S_BRACKET "F", ln_cmd(ls, lnEditMoveEnd));
 
-	    /* ESC single byte */
-	    else {
-		switch(seq[0]) {
-		case 'b':
-		    lnEditMoveLeftWord(&l);
-		    break;
-		case 'f':
-		    lnEditMoveRightWord(&l);
-		    break;
-		case BACKSPACE:
-		case 'h':
-		    lnEditDeletePrevWord(&l);
-		    break;
-		case 'd':
-		    lnEditDeleteNextWord(&l);
-		    break;
+    ln_add_key_handler(S_ESC S_ESC S_BRACKET "C", ln_cmd(ls, lnEditMoveRightWord));
+    ln_add_key_handler(S_ESC S_ESC S_BRACKET "D", ln_cmd(ls, lnEditMoveLeftWord));
 
-		default:
-		    /* not handled */
-		    break;
-		}
+    ln_add_key_handler(S_ESC "O" "H", ln_cmd(ls, lnEditMoveHome));
+    ln_add_key_handler(S_ESC "O" "F", ln_cmd(ls, lnEditMoveEnd));
+
+    ln_add_key_handler(S_ESC "b", ln_cmd(ls, lnEditMoveLeftWord));
+    ln_add_key_handler(S_ESC "f", ln_cmd(ls, lnEditMoveRightWord));
+    ln_add_key_handler(S_ESC "h", ln_cmd(ls, lnEditDeletePrevWord));
+    ln_add_key_handler(S_ESC "d", ln_cmd(ls, lnEditDeleteNextWord));
+    ln_add_key_handler(S_ESC S_BSPACE, ln_cmd(ls, lnEditDeletePrevWord));
+
+    /*
+     * This has to be the last handler, to take care of all 'other'
+     * keys
+     */
+    ln_add_key_handler("*", [ls] (int c) {
+            if (lnEditInsert(ls, c)) {
+		ls->edit_done = 1;
+		return -1;
 	    }
+	    return 0;
+	});
 
-            break;
-        default:
-            if (lnEditInsert(&l, c)) return -1;
-            break;
-        case CTRL_U: /* Ctrl+u, delete the whole line. */
-            buf[0] = '\0';
-            l.pos = l.len = 0;
-            break;
-        case CTRL_K: /* Ctrl+k, delete from current to end of line. */
-            buf[l.pos] = '\0';
-            l.len = l.pos;
-            break;
-        case CTRL_A: /* Ctrl+a, go to the start of the line */
-            lnEditMoveHome(&l);
-            break;
-        case CTRL_E: /* ctrl+e, go to the end of the line */
-            lnEditMoveEnd(&l);
-            break;
-        case CTRL_L: /* ctrl+l, clear screen */
-            linenoiseClearScreen();
-            break;
-        case CTRL_W: /* ctrl+w, delete previous word */
-            lnEditDeletePrevWord(&l);
-            break;
-        }
-	refreshLine(&l);
-    }
-
-    return l.len;
+    return ln_handle_keys(stdin_fd, &ls->edit_done);
 }
 
 /* This function calls the line editing function lnEdit() using

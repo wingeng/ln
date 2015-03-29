@@ -11,18 +11,21 @@
 
 #define UNUSED __attribute__((unused))
 
-#define ESC		"\x1b"
-#define BRACKET		"["
-#define BSPACE		"\x7f"
-#define CTRL(x) (const char []) { ((x - 'A') + 1), 0 }
+#define S_ESC		"\x1b"
+#define S_BRACKET	"["
+#define S_BSPACE	"\x7f"
+#define S_TAB		"\x9"
+#define S_CTRL(x) (const char []) { ((x - 'A') + 1), 0 }
 
 
 /* Character handling routine */
-typedef std::function<void (int ch)> cmd_func;
+/* Returns 0 to continue inside read loop */
+/* non-zero to exit, returning status */
+typedef std::function<int (int ch)> cmd_func;
 
 void ln_add_key_handler(const char *seq, cmd_func func);
 
-void ln_handle_keys(int fd);
-
+int ln_handle_keys(int fd, int *done);
+void ln_push_char(char ch);
 
 #endif

@@ -10,11 +10,7 @@
  * Copyright (c) 2015, Wing Eng
  * All rights reserved.
  */
-
-#include <vector>
-#include <ctype.h>
-#include <unistd.h>
-#include <string.h>
+#include <deque>
 #include <assert.h>
 
 #include "linenoise.h"
@@ -35,7 +31,8 @@ public:
 
 typedef vector<key_node_c *> cmd_vec_t;
 
-cmd_vec_t cmd_map;
+static cmd_vec_t cmd_map;
+static deque<char> char_stack;
 
 static key_node_c *
 find_key_node (cmd_vec_t &cmd_map, int ch, int match_any = 1)
@@ -52,9 +49,25 @@ find_key_node (cmd_vec_t &cmd_map, int ch, int match_any = 1)
 static void
 next_char (int fd, char &c)
 {
+    if (char_stack.size()) {
+	c = char_stack.front();
+	char_stack.pop_front();
+	return;
+    }
+
     if (read(fd, &c, 1) != 1) {
 	assert(0);
     }
+}
+
+/*
+ * Push a char back into the read loop, use this char instead
+ * of stdin, used for complete line where the char wasn't consumed
+ */
+void
+ln_push_char (char c)
+{
+    char_stack.push_back(c);
 }
 
 static key_node_c *
@@ -99,16 +112,17 @@ ln_add_key_handler (const char *seq, cmd_func func)
     add_key_handler(cmd_map, seq, func);
 }
 
-
-void
-ln_handle_keys (int fd)
+int
+ln_handle_keys (int fd, int *done)
 {
     char ch;
+    int ret = 00;
 
-    while (1) {
+    while (!*done) {
 	auto kn = ln_get_keys(cmd_map, fd, ch);
 	if (kn && kn->kn_func) {
-	    kn->kn_func(ch);
+	    ret = kn->kn_func(ch);
 	}
     }
+    return ret;
 }
