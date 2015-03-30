@@ -122,9 +122,9 @@ main ()
      * linenoise, so the user needs to free() it. 
      */
     while ((line = linenoise("computer> ")) != NULL) {
-	call_command(line);
-
 	if (strlen(line)) {
+	    call_command(line);
+
 	    linenoiseHistoryAdd(line);
 	    linenoiseHistorySave("history.txt");
 	}
