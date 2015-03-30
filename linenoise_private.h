@@ -17,6 +17,11 @@
 #define S_TAB		"\x9"
 #define S_CTRL(x) (const char []) { ((x - 'A') + 1), 0 }
 
+/*
+ * The start of the  ESC [ sequence, short for
+ * control sequence initiate
+ */
+#define CSI S_ESC S_BRACKET
 
 /* Character handling routine */
 /* Returns 0 to continue inside read loop */
