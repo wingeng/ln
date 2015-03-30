@@ -257,18 +257,22 @@ lnBeep (void)
 static void
 refreshHistorySearch (struct linenoiseState *ls)
 {
+    char prompt[LN_MAX_LINE];
     char line[LN_MAX_LINE];
     string_fmt_c ab;
 
     unsigned hi = history.size() - ls->history_index  - 1;
 
-    snprintf(line, sizeof(line),
-	     "(history-i-search [%d]) '%s': %s",
-	     ls->history_index, ls->buf, history[hi].c_str());
+    snprintf(prompt, sizeof(prompt),
+	     "(history-i-search [%d]) '%s': ", ls->history_index, ls->buf);
+    snprintf(line, sizeof(line), "%s%s", prompt, history[hi].c_str());
 
     ab = CSI "0G";
     ab += line;
     ab += CSI "0K";  /* Erase Right */
+
+    /* Move cursor to original position. */
+    ab.append(CSI "0G" CSI "%dC", (int) (strlen(prompt)));
 
     write(ls->ofd, ab.c_str(), ab.size());
 }
@@ -739,8 +743,9 @@ lnEditSetHistoryIndex (linenoiseState *ls)
     unsigned hi = history.size() - ls->history_index  - 1;
 
     snprintf(ls->buf, ls->buflen, "%s", history[hi].c_str());
-    ls->pos = strlen(ls->buf);
-    ls->len = ls->pos;
+
+    ls->pos = 0;
+    ls->len = strlen(ls->buf);
 
     ls->history_search = 0;
     ls->history_index = 0;
@@ -788,6 +793,7 @@ lnEdit (int stdin_fd, int stdout_fd,
     l.cols = getColumns(stdin_fd, stdout_fd);
     l.edit_done = 0;
     l.history_index = 0;
+    l.history_search = 0;
 
     /* Buffer starts empty. */
     l.buf[0] = '\0';

@@ -11,6 +11,7 @@
  * All rights reserved.
  */
 #include <deque>
+#include <unistd.h>
 #include <assert.h>
 
 #include "linenoise.h"
