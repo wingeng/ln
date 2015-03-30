@@ -1,3 +1,7 @@
+/* 
+ * Copyright (c) 2015, Wing Eng
+ * All rights reserved.
+ */
 #include <alloca.h>
 #include <stdarg.h>
 #include <assert.h>

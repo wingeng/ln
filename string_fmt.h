@@ -1,3 +1,7 @@
+/* 
+ * Copyright (c) 2015, Wing Eng
+ * All rights reserved.
+ */
 #ifndef STRING_FMT_H
 #define STRING_FMT_H
 

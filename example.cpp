@@ -1,3 +1,7 @@
+/* 
+ * Copyright (c) 2015, Wing Eng
+ * All rights reserved.
+ */
 #include <functional>
 #include <stdio.h>
 #include <stdlib.h>

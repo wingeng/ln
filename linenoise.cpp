@@ -185,7 +185,7 @@ getCursorPosition (int ifd, int ofd)
 }
 
 static void
-get_col_row (unsigned int &cols, unsigned int &rows)
+getColRow (unsigned int &cols, unsigned int &rows)
 {
     struct winsize ws;
 
@@ -358,7 +358,7 @@ helpLine (struct linenoiseState *ls)
     std::vector<lnCompletion> lc;
     unsigned int max_cols, max_rows;
     
-    get_col_row(max_cols, max_rows);
+    getColRow(max_cols, max_rows);
     completionCallback(ls->buf, (void **) &lc);
 
     if (lc.size() == 0) {
@@ -436,7 +436,7 @@ completeLine (struct linenoiseState *ls)
         }
     }
 
-    ln_push_char(c);
+    lnPushChar(c);
 }
 
 /* Register a callback function to be called for tab-completion. */
@@ -754,7 +754,7 @@ lnEditSetHistoryIndex (linenoiseState *ls)
 typedef void (ln_func_t)(linenoiseState *);
 
 static cmd_func
-ln_cmd (linenoiseState *ls, ln_func_t func, int reset_history_search = 1)
+lnCmd (linenoiseState *ls, ln_func_t func, int reset_history_search = 1)
 {
     return [ls, func, reset_history_search] (int ch UNUSED) {
 	if (reset_history_search) lnEditSetHistoryIndex(ls);
@@ -805,48 +805,48 @@ lnEdit (int stdin_fd, int stdout_fd,
     
     if (write(l.ofd, prompt, l.plen) == -1) return -1;
 
-    ln_add_key_handler("?",	    ln_cmd(ls, helpLine));
-    ln_add_key_handler(S_BSPACE,    ln_cmd(ls, lnEditBackspace, 0));
-    ln_add_key_handler(S_TAB,	    ln_cmd(ls, completeLine));
-    ln_add_key_handler(S_CTRL('A'), ln_cmd(ls, lnEditMoveHome));
-    ln_add_key_handler(S_CTRL('B'), ln_cmd(ls, lnEditMoveLeft));
-    ln_add_key_handler(S_CTRL('C'), ln_cmd(ls, lnEditControlC));
-    ln_add_key_handler(S_CTRL('D'), ln_cmd(ls, lnEditControlD));
-    ln_add_key_handler(S_CTRL('E'), ln_cmd(ls, lnEditMoveEnd));
-    ln_add_key_handler(S_CTRL('F'), ln_cmd(ls, lnEditMoveRight));
-    ln_add_key_handler(S_CTRL('H'), ln_cmd(ls, lnEditBackspace, 0));
-    ln_add_key_handler(S_CTRL('K'), ln_cmd(ls, lnEditDeleteToEOL));
-    ln_add_key_handler(S_CTRL('L'), ln_cmd(ls, lnClearScreen));
-    ln_add_key_handler(S_CTRL('M'), ln_cmd(ls, lnEditEnter));
-    ln_add_key_handler(S_CTRL('N'), ln_cmd(ls, lnEditHistoryNext));
-    ln_add_key_handler(S_CTRL('P'), ln_cmd(ls, lnEditHistoryPrev));
-    ln_add_key_handler(S_CTRL('R'), ln_cmd(ls, lnEditHistorySearchPrev, 0));
-    ln_add_key_handler(S_CTRL('T'), ln_cmd(ls, lnEditSwap));
-    ln_add_key_handler(S_CTRL('U'), ln_cmd(ls, lnEditDeleteLine));
-    ln_add_key_handler(S_CTRL('W'), ln_cmd(ls, lnEditDeletePrevWord));
+    lnAddKeyHandler("?",	 lnCmd(ls, helpLine));
+    lnAddKeyHandler(S_BSPACE,    lnCmd(ls, lnEditBackspace, 0));
+    lnAddKeyHandler(S_TAB,	 lnCmd(ls, completeLine));
+    lnAddKeyHandler(S_CTRL('A'), lnCmd(ls, lnEditMoveHome));
+    lnAddKeyHandler(S_CTRL('B'), lnCmd(ls, lnEditMoveLeft));
+    lnAddKeyHandler(S_CTRL('C'), lnCmd(ls, lnEditControlC));
+    lnAddKeyHandler(S_CTRL('D'), lnCmd(ls, lnEditControlD));
+    lnAddKeyHandler(S_CTRL('E'), lnCmd(ls, lnEditMoveEnd));
+    lnAddKeyHandler(S_CTRL('F'), lnCmd(ls, lnEditMoveRight));
+    lnAddKeyHandler(S_CTRL('H'), lnCmd(ls, lnEditBackspace, 0));
+    lnAddKeyHandler(S_CTRL('K'), lnCmd(ls, lnEditDeleteToEOL));
+    lnAddKeyHandler(S_CTRL('L'), lnCmd(ls, lnClearScreen));
+    lnAddKeyHandler(S_CTRL('M'), lnCmd(ls, lnEditEnter));
+    lnAddKeyHandler(S_CTRL('N'), lnCmd(ls, lnEditHistoryNext));
+    lnAddKeyHandler(S_CTRL('P'), lnCmd(ls, lnEditHistoryPrev));
+    lnAddKeyHandler(S_CTRL('R'), lnCmd(ls, lnEditHistorySearchPrev, 0));
+    lnAddKeyHandler(S_CTRL('T'), lnCmd(ls, lnEditSwap));
+    lnAddKeyHandler(S_CTRL('U'), lnCmd(ls, lnEditDeleteLine));
+    lnAddKeyHandler(S_CTRL('W'), lnCmd(ls, lnEditDeletePrevWord));
 
-    ln_add_key_handler(S_ESC S_BRACKET "3~", ln_cmd(ls, lnEditDelete));
-    ln_add_key_handler(S_ESC S_BRACKET "A",  ln_cmd(ls, lnEditHistoryPrev));
-    ln_add_key_handler(S_ESC S_BRACKET "B",  ln_cmd(ls, lnEditHistoryNext));
-    ln_add_key_handler(S_ESC S_BRACKET "C",  ln_cmd(ls, lnEditMoveRight));
-    ln_add_key_handler(S_ESC S_BRACKET "D",  ln_cmd(ls, lnEditMoveLeft));
-    ln_add_key_handler(S_ESC S_BRACKET "F",  ln_cmd(ls, lnEditMoveEnd));
-    ln_add_key_handler(S_ESC S_BRACKET "H",  ln_cmd(ls, lnEditMoveHome));
+    lnAddKeyHandler(S_ESC S_BRACKET "3~", lnCmd(ls, lnEditDelete));
+    lnAddKeyHandler(S_ESC S_BRACKET "A",  lnCmd(ls, lnEditHistoryPrev));
+    lnAddKeyHandler(S_ESC S_BRACKET "B",  lnCmd(ls, lnEditHistoryNext));
+    lnAddKeyHandler(S_ESC S_BRACKET "C",  lnCmd(ls, lnEditMoveRight));
+    lnAddKeyHandler(S_ESC S_BRACKET "D",  lnCmd(ls, lnEditMoveLeft));
+    lnAddKeyHandler(S_ESC S_BRACKET "F",  lnCmd(ls, lnEditMoveEnd));
+    lnAddKeyHandler(S_ESC S_BRACKET "H",  lnCmd(ls, lnEditMoveHome));
 
-    ln_add_key_handler(S_ESC S_ESC S_BRACKET "C", ln_cmd(ls, lnEditMoveRightWord));
-    ln_add_key_handler(S_ESC S_ESC S_BRACKET "D", ln_cmd(ls, lnEditMoveLeftWord));
+    lnAddKeyHandler(S_ESC S_ESC S_BRACKET "C", lnCmd(ls, lnEditMoveRightWord));
+    lnAddKeyHandler(S_ESC S_ESC S_BRACKET "D", lnCmd(ls, lnEditMoveLeftWord));
 
-    ln_add_key_handler(S_ESC "O" "F", ln_cmd(ls, lnEditMoveEnd));
-    ln_add_key_handler(S_ESC "O" "H", ln_cmd(ls, lnEditMoveHome));
+    lnAddKeyHandler(S_ESC "O" "F", lnCmd(ls, lnEditMoveEnd));
+    lnAddKeyHandler(S_ESC "O" "H", lnCmd(ls, lnEditMoveHome));
 
-    ln_add_key_handler(S_ESC S_BSPACE, ln_cmd(ls, lnEditDeletePrevWord));
-    ln_add_key_handler(S_ESC "b", ln_cmd(ls, lnEditMoveLeftWord));
-    ln_add_key_handler(S_ESC "d", ln_cmd(ls, lnEditDeleteNextWord));
-    ln_add_key_handler(S_ESC "f", ln_cmd(ls, lnEditMoveRightWord));
-    ln_add_key_handler(S_ESC "h", ln_cmd(ls, lnEditDeletePrevWord));
+    lnAddKeyHandler(S_ESC S_BSPACE, lnCmd(ls, lnEditDeletePrevWord));
+    lnAddKeyHandler(S_ESC "b", lnCmd(ls, lnEditMoveLeftWord));
+    lnAddKeyHandler(S_ESC "d", lnCmd(ls, lnEditDeleteNextWord));
+    lnAddKeyHandler(S_ESC "f", lnCmd(ls, lnEditMoveRightWord));
+    lnAddKeyHandler(S_ESC "h", lnCmd(ls, lnEditDeletePrevWord));
 
     /*  This has to be the last handler, to take care of all 'other' keys */
-    ln_add_key_handler("*", [ls] (int c) {
+    lnAddKeyHandler("*", [ls] (int c) {
             if (lnEditInsert(ls, c)) {
 		ls->edit_done = 1;
 		ls->ret_code = -1;
@@ -855,7 +855,7 @@ lnEdit (int stdin_fd, int stdout_fd,
 	});
 
     /* This loops over stdin_fd until ls->edit_done == 1 */
-    ln_handle_keys(stdin_fd, &ls->edit_done);
+    lnHandleKeys(stdin_fd, &ls->edit_done);
 
     return ls->ret_code;
 }

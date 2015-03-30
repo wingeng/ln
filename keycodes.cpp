@@ -1,9 +1,13 @@
+/* 
+ * See license.txt
+ */
 #include <map>
 #include <functional>
 
 #include <ctype.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdio.h>
 #include <assert.h>
 #include "linenoise.h"
 

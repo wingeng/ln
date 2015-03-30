@@ -28,9 +28,9 @@
 /* non-zero to exit, returning status */
 typedef std::function<int (int ch)> cmd_func;
 
-void ln_add_key_handler(const char *seq, cmd_func func);
+void lnAddKeyHandler(const char *seq, cmd_func func);
+int lnHandleKeys(int fd, int *done);
+void lnPushChar(char ch);
 
-int ln_handle_keys(int fd, int *done);
-void ln_push_char(char ch);
 
 #endif
