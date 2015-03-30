@@ -1,6 +1,39 @@
-# Massaging into C++
+# Fork of linenoise
 
-Taking the original linenoise code and massaging it to C++ (slowly)
+This is a fork of linenoise to add features missing in it. It keeps
+the spirit of linenoise by making ridiculous assumptions about the
+terminal :)  and keeping the code small, near 1k.
+
+It uses C++ to avoid the hassles of dealing with dynamic memory.  This
+also makes the code more compact, taking advantage of C++
+features like strings, vectors, and lambas.
+
+## What's new added to linenoise
+
+* Help
+
+Pressing '?' will show completes for what's in the current buffer.
+
+* TAB
+
+Pressing TAB will complete a token up to longest match in completion
+list provided by App.  Pressing TAB twice display possible matches.
+
+* Search history
+
+CTRL-R starts an interactive search through history.  Press any
+editing keys other than backspace exits interactive search.
+
+* Move by words
+
+META-F moves forward by a word.
+META-B moves backswards by a word
+
+* Delete by words
+
+META-D deletes word to right of cursor
+META-BACKSPACE, Deletes word to left of cursor
+
 
 # Linenoise
 
