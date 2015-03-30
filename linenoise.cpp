@@ -49,6 +49,7 @@ static int atexit_registered = 0;	/* Register atexit just 1 time. */
 
 static int history_max_len = LN_DEFAULT_HISTORY_MAX_LEN;
 static std::vector<std::string> history;
+static std::string yank_buffer;
 
 /* The linenoiseState structure represents the state during line editing.
  * We pass this state to functions implementing specific editing
@@ -67,6 +68,7 @@ struct linenoiseState {
 
     int history_search; /* 1 if we are searching history */
     int history_index;
+
     int edit_done;      /* set non-zero when done with editing line */
     int ret_code;	/* return code to linenoise() */
 };
@@ -275,6 +277,14 @@ refreshHistorySearch (struct linenoiseState *ls)
     ab.append(CSI "0G" CSI "%dC", (int) (strlen(prompt)));
 
     write(ls->ofd, ab.c_str(), ab.size());
+}
+
+static void
+lnYankSet (const char *str, int left, int right)
+{
+    string tmp_buf = str;
+
+    yank_buffer = tmp_buf.substr(left, right - left);
 }
 
 /* Single line low level line refresh.
@@ -664,6 +674,9 @@ lnEditDeleteWord (struct linenoiseState *ls, int dir)
 	left = ls->pos;
 	right = old_pos;
     }
+
+    lnYankSet(ls->buf, left, right);
+
     memmove(ls->buf + left, ls->buf + right, ls->len - left + 1);
     ls->len -= (right - left);
     ls->pos = left;
@@ -681,6 +694,14 @@ lnEditDeleteNextWord (struct linenoiseState *ls)
     lnEditDeleteWord(ls, 1);
 }
 
+void
+lnEditYank (struct linenoiseState *ls)
+{
+    for (auto ch : yank_buffer) {
+	lnEditInsert(ls, ch);
+    }
+}
+
 static void
 lnEditSwap (linenoiseState *ls)
 {
@@ -695,6 +716,8 @@ lnEditSwap (linenoiseState *ls)
 static void
 lnEditDeleteLine (linenoiseState *ls)
 {
+    lnYankSet(ls->buf, 0, ls->len);
+
     ls->buf[0] = '\0';
     ls->pos = ls->len = 0;
 }
@@ -702,6 +725,8 @@ lnEditDeleteLine (linenoiseState *ls)
 static void
 lnEditDeleteToEOL (linenoiseState *ls)
 {
+    lnYankSet(ls->buf, ls->pos, ls->len);
+
     ls->buf[ls->pos] = '\0';
     ls->len = ls->pos;
 }
@@ -761,6 +786,7 @@ lnCmd (linenoiseState *ls, ln_func_t func, int reset_history_search = 1)
 
 	func(ls);
 	refreshLine(ls);
+
 	return 0;
     };
 }
@@ -824,6 +850,7 @@ lnEdit (int stdin_fd, int stdout_fd,
     lnAddKeyHandler(S_CTRL('T'), lnCmd(ls, lnEditSwap));
     lnAddKeyHandler(S_CTRL('U'), lnCmd(ls, lnEditDeleteLine));
     lnAddKeyHandler(S_CTRL('W'), lnCmd(ls, lnEditDeletePrevWord));
+    lnAddKeyHandler(S_CTRL('Y'), lnCmd(ls, lnEditYank));
 
     lnAddKeyHandler(S_ESC S_BRACKET "3~", lnCmd(ls, lnEditDelete));
     lnAddKeyHandler(S_ESC S_BRACKET "A",  lnCmd(ls, lnEditHistoryPrev));
@@ -923,7 +950,7 @@ linenoiseHistoryAdd (const char *line)
 
     /* Don't add duplicated lines. */
     auto history_len = (int) history.size();
-    if (history.size() && history[history_len-1] == line)
+    if (history_len && history[history_len - 1] == line)
 	return 0;
 
     if (history_len == history_max_len) {

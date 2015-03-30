@@ -34,6 +34,10 @@ META-B moves backswards by a word
 META-D deletes word to right of cursor
 META-BACKSPACE, Deletes word to left of cursor
 
+* Yank Buffer
+
+Delete words and killed lines are stored in a yank buffer that can be
+retrieved by CTRL-Y.
 
 # Linenoise
 
