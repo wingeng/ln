@@ -65,10 +65,13 @@ struct linenoiseState {
     size_t len;         /* Current edited line length. */
     size_t cols;        /* Number of columns in terminal. */
 
+    int history_search; /* 1 if we are searching history */
     int history_index;
     int edit_done;      /* set non-zero when done with editing line */
     int ret_code;	/* return code to linenoise() */
 };
+
+static void lnEditHistorySearchPrev(linenoiseState *ls);
 
 /* Debugging macro. */
 #if 1
@@ -251,6 +254,25 @@ lnBeep (void)
     fflush(stderr);
 }
 
+static void
+refreshHistorySearch (struct linenoiseState *ls)
+{
+    char line[LN_MAX_LINE];
+    string_fmt_c ab;
+
+    unsigned hi = history.size() - ls->history_index  - 1;
+
+    snprintf(line, sizeof(line),
+	     "(history-i-search [%d]) '%s': %s",
+	     ls->history_index, ls->buf, history[hi].c_str());
+
+    ab = CSI "0G";
+    ab += line;
+    ab += CSI "0K";  /* Erase Right */
+
+    write(ls->ofd, ab.c_str(), ab.size());
+}
+
 /* Single line low level line refresh.
  *
  * Rewrite the currently edited line accordingly to the buffer content,
@@ -258,6 +280,10 @@ lnBeep (void)
 static void
 refreshSingleLine (struct linenoiseState *ls)
 {
+    if (ls->history_search) {
+	refreshHistorySearch(ls);
+	return;
+    }
     size_t plen = strlen(ls->prompt);
     int fd = ls->ofd;
     char *buf = ls->buf;
@@ -444,19 +470,20 @@ lnEditInsert (struct linenoiseState *ls, char c)
             ls->pos++;
             ls->len++;
             ls->buf[ls->len] = '\0';
-            if (ls->plen+ls->len < ls->cols) {
-                /* Avoid a full update of the line in the
-                 * trivial case. */
-                if (write(ls->ofd, &c, 1) == -1) return -1;
-            }
         } else {
-            memmove(ls->buf+ls->pos + 1, ls->buf + ls->pos, ls->len-ls->pos);
+            memmove(ls->buf + ls->pos + 1, ls->buf + ls->pos, ls->len - ls->pos);
             ls->buf[ls->pos] = c;
             ls->len++;
             ls->pos++;
             ls->buf[ls->len] = '\0';
         }
     }
+
+    if (ls->history_search) {
+	ls->history_index = 0;
+	lnEditHistorySearchPrev(ls);
+    }
+
     refreshLine(ls);
     return 0;
 }
@@ -564,6 +591,31 @@ lnEditHistoryNext (linenoiseState *ls)
     editHistoryNext(ls, -1);
 }
 
+static void
+lnEditHistorySearchPrev (linenoiseState *ls)
+{
+    int history_len = history.size();
+    int i;
+
+    if (strlen(ls->buf) == 0) {
+	ls->history_search = 1;
+	return;
+    }
+
+    /* search backwards through history starting from history_index */
+    for (i = ls->history_index + 1; i < history_len && i >= 0; i++) {
+	if (history[history_len - i - 1].find(ls->buf) != string::npos)
+	    break;
+    }
+    if (i < 0 || i >= history_len) {
+	lnBeep();
+	return;
+    }
+
+    ls->history_index = i;
+    ls->history_search = 1;
+}
+
 /* Delete the character at the right of the cursor without altering the cursor
  * position. Basically this is what happens with the "Delete" keyboard key. */
 void
@@ -584,6 +636,10 @@ lnEditBackspace (struct linenoiseState *ls)
         ls->pos--;
         ls->len--;
         ls->buf[ls->len] = '\0';
+    }
+    if (ls->history_search) {
+	ls->history_index = 0;
+	lnEditHistorySearchPrev(ls);
     }
 }
 
@@ -674,12 +730,29 @@ lnEditEnter (linenoiseState *ls)
     ls->ret_code = ls->len;
 }
 
+static void
+lnEditSetHistoryIndex (linenoiseState *ls)
+{
+    if (!ls->history_search) return;
+
+    unsigned hi = history.size() - ls->history_index  - 1;
+
+    snprintf(ls->buf, ls->buflen, "%s", history[hi].c_str());
+    ls->pos = strlen(ls->buf);
+    ls->len = ls->pos;
+
+    ls->history_search = 0;
+    ls->history_index = 0;
+}
+
 typedef void (ln_func_t)(linenoiseState *);
 
 static cmd_func
-ln_cmd (linenoiseState *ls, ln_func_t func)
+ln_cmd (linenoiseState *ls, ln_func_t func, int reset_history_search = 1)
 {
-    return [ls, func] (int ch UNUSED) {
+    return [ls, func, reset_history_search] (int ch UNUSED) {
+	if (reset_history_search) lnEditSetHistoryIndex(ls);
+
 	func(ls);
 	refreshLine(ls);
 	return 0;
@@ -725,32 +798,33 @@ lnEdit (int stdin_fd, int stdout_fd,
     
     if (write(l.ofd, prompt, l.plen) == -1) return -1;
 
-    ln_add_key_handler("?", 	ln_cmd(ls, helpLine));
-    ln_add_key_handler(S_BSPACE,    ln_cmd(ls, lnEditBackspace));
-    ln_add_key_handler(S_TAB, 	ln_cmd(ls, completeLine));
+    ln_add_key_handler("?",	    ln_cmd(ls, helpLine));
+    ln_add_key_handler(S_BSPACE,    ln_cmd(ls, lnEditBackspace, 0));
+    ln_add_key_handler(S_TAB,	    ln_cmd(ls, completeLine));
     ln_add_key_handler(S_CTRL('A'), ln_cmd(ls, lnEditMoveHome));
     ln_add_key_handler(S_CTRL('B'), ln_cmd(ls, lnEditMoveLeft));
     ln_add_key_handler(S_CTRL('C'), ln_cmd(ls, lnEditControlC));
     ln_add_key_handler(S_CTRL('D'), ln_cmd(ls, lnEditControlD));
     ln_add_key_handler(S_CTRL('E'), ln_cmd(ls, lnEditMoveEnd));
     ln_add_key_handler(S_CTRL('F'), ln_cmd(ls, lnEditMoveRight));
-    ln_add_key_handler(S_CTRL('H'), ln_cmd(ls, lnEditBackspace));
+    ln_add_key_handler(S_CTRL('H'), ln_cmd(ls, lnEditBackspace, 0));
     ln_add_key_handler(S_CTRL('K'), ln_cmd(ls, lnEditDeleteToEOL));
     ln_add_key_handler(S_CTRL('L'), ln_cmd(ls, lnClearScreen));
     ln_add_key_handler(S_CTRL('M'), ln_cmd(ls, lnEditEnter));
     ln_add_key_handler(S_CTRL('N'), ln_cmd(ls, lnEditHistoryNext));
     ln_add_key_handler(S_CTRL('P'), ln_cmd(ls, lnEditHistoryPrev));
+    ln_add_key_handler(S_CTRL('R'), ln_cmd(ls, lnEditHistorySearchPrev, 0));
     ln_add_key_handler(S_CTRL('T'), ln_cmd(ls, lnEditSwap));
     ln_add_key_handler(S_CTRL('U'), ln_cmd(ls, lnEditDeleteLine));
     ln_add_key_handler(S_CTRL('W'), ln_cmd(ls, lnEditDeletePrevWord));
 
     ln_add_key_handler(S_ESC S_BRACKET "3~", ln_cmd(ls, lnEditDelete));
-    ln_add_key_handler(S_ESC S_BRACKET "A", ln_cmd(ls, lnEditHistoryPrev));
-    ln_add_key_handler(S_ESC S_BRACKET "B", ln_cmd(ls, lnEditHistoryNext));
-    ln_add_key_handler(S_ESC S_BRACKET "C", ln_cmd(ls, lnEditMoveRight));
-    ln_add_key_handler(S_ESC S_BRACKET "D", ln_cmd(ls, lnEditMoveLeft));
-    ln_add_key_handler(S_ESC S_BRACKET "F", ln_cmd(ls, lnEditMoveEnd));
-    ln_add_key_handler(S_ESC S_BRACKET "H", ln_cmd(ls, lnEditMoveHome));
+    ln_add_key_handler(S_ESC S_BRACKET "A",  ln_cmd(ls, lnEditHistoryPrev));
+    ln_add_key_handler(S_ESC S_BRACKET "B",  ln_cmd(ls, lnEditHistoryNext));
+    ln_add_key_handler(S_ESC S_BRACKET "C",  ln_cmd(ls, lnEditMoveRight));
+    ln_add_key_handler(S_ESC S_BRACKET "D",  ln_cmd(ls, lnEditMoveLeft));
+    ln_add_key_handler(S_ESC S_BRACKET "F",  ln_cmd(ls, lnEditMoveEnd));
+    ln_add_key_handler(S_ESC S_BRACKET "H",  ln_cmd(ls, lnEditMoveHome));
 
     ln_add_key_handler(S_ESC S_ESC S_BRACKET "C", ln_cmd(ls, lnEditMoveRightWord));
     ln_add_key_handler(S_ESC S_ESC S_BRACKET "D", ln_cmd(ls, lnEditMoveLeftWord));
