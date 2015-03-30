@@ -106,9 +106,9 @@ main ()
 {
     char *line;
 
-    lnSetCompletionCallback([] (const char *buf, lnCompletionVec *lc) {
+    linenoiseSetCompletionCallback([] (const char *buf, linenoiseCompletions *lc) {
 	    command_match(buf, [lc] (command_t &cmd) {
-		    lnAddCompletion(lc, cmd.c_token, cmd.c_help);
+		    linenoiseAddCompletion(lc, cmd.c_token, cmd.c_help);
 		});
 	});
     linenoiseHistoryLoad("history.txt");

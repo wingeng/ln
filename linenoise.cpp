@@ -41,7 +41,7 @@ public:
 #define LN_DEFAULT_HISTORY_MAX_LEN 100
 #define LN_MAX_LINE 4096
 static const char *unsupported_term[] = {"dumb", "cons25", "emacs", NULL};
-static lnCompletionFunc cppCompletionCallback;
+static linenoiseCompletionFunc *completionCallback;
 
 static struct termios orig_termios;	/* In order to restore at exit.*/
 static int rawmode = 0;			/* For atexit() function to check if restore is needed*/
@@ -355,7 +355,7 @@ helpLine (struct linenoiseState *ls)
     unsigned int max_cols, max_rows;
     
     get_col_row(max_cols, max_rows);
-    cppCompletionCallback(ls->buf, &lc);
+    completionCallback(ls->buf, (void **) &lc);
 
     if (lc.size() == 0) {
 	printf("\r\n *no-match*");
@@ -398,9 +398,9 @@ completeLine (struct linenoiseState *ls)
     int nread, nwritten;
     char c = 0;
 
-    if (!cppCompletionCallback) return;
+    if (!completionCallback) return;
 
-    cppCompletionCallback(ls->buf, &lc);
+    completionCallback(ls->buf, (void **) &lc);
     if (lc.size() == 0) {
         lnBeep();
     } else {
@@ -437,9 +437,9 @@ completeLine (struct linenoiseState *ls)
 
 /* Register a callback function to be called for tab-completion. */
 void
-lnSetCompletionCallback (lnCompletionFunc fn)
+linenoiseSetCompletionCallback (linenoiseCompletionFunc fn)
 {
-    cppCompletionCallback = fn;
+    completionCallback = fn;
 }
 
 
@@ -448,8 +448,9 @@ lnSetCompletionCallback (lnCompletionFunc fn)
  * user typed <tab>. See the example.c source code for a very easy to
  * understand example. */
 void
-lnAddCompletion (lnCompletionVec *lc, const char *str, const char *help)
+linenoiseAddCompletion (linenoiseCompletions opaque, const char *str, const char *help)
 {
+    auto lc = reinterpret_cast<std::vector<lnCompletion> *>(opaque);
     lc->push_back(lnCompletion(str, help));
 }
 

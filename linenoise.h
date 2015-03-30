@@ -9,6 +9,12 @@
 extern "C" {
 #endif
 
+typedef void *linenoiseCompletions;
+typedef void (linenoiseCompletionFunc)(const char *, linenoiseCompletions *);
+
+void linenoiseSetCompletionCallback(linenoiseCompletionFunc fn);
+void linenoiseAddCompletion(linenoiseCompletions, const char *, const char *);
+
 char *linenoise(const char *prompt);
 int linenoiseHistoryAdd(const char *line);
 int linenoiseHistorySetMaxLen(int len);
@@ -22,20 +28,6 @@ void lnDisableRawMode(int);
 }
 #endif
 
-#ifdef __cplusplus
-#include <string>
-#include <functional>
-#include <vector>
-
-class lnCompletion;
-
-typedef std::vector<lnCompletion> lnCompletionVec;
-typedef std::function<void (const char *, lnCompletionVec *)> lnCompletionFunc;
-
-void lnSetCompletionCallback(lnCompletionFunc fn);
-void lnAddCompletion(lnCompletionVec *, const char *, const char *);
-
-#endif
 
 #ifndef STDIN_FILENO
 #define STDIN_FILENO 0
