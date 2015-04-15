@@ -6,7 +6,7 @@ terminal :)  and keeping the code small, near 1k.
 
 It uses C++ to avoid the hassles of dealing with dynamic memory.  This
 also makes the code more compact, taking advantage of C++
-features like strings, vectors, and lambas.
+features like strings, vectors, and lambdas.
 
 ## What's new added to linenoise
 
