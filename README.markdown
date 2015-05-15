@@ -8,7 +8,7 @@ It uses C++ to avoid the hassles of dealing with dynamic memory.  This
 also makes the code more compact, taking advantage of C++
 features like strings, vectors, and lambdas.
 
-## What's new added to linenoise
+## What's added to linenoise
 
 * Help
 
@@ -27,7 +27,7 @@ editing keys other than backspace exits interactive search.
 * Move by words
 
 META-F moves forward by a word.
-META-B moves backswards by a word
+META-B moves backwards by a word
 
 * Delete by words
 
